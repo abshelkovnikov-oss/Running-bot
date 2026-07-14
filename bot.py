@@ -4,6 +4,18 @@ from datetime import datetime
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
+# Добавь эти строки отладки:
+print("🚀 Запуск бота...")
+print(f"BOT_TOKEN установлен: {bool(os.getenv('BOT_TOKEN'))}")
+print(f"ADMIN_ID установлен: {bool(os.getenv('ADMIN_ID'))}")
+
+bot_token = os.getenv("BOT_TOKEN")
+if not bot_token:
+    print("❌ BOT_TOKEN не найден!")
+    exit()
+
+print("✅ Создаю приложение...")
+
 # Настройка логирования
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',

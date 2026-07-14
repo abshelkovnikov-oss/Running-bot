@@ -11,7 +11,7 @@ logging.basicConfig(
 )
 
 # Токен бота (добавь в переменные окружения Railway)
-# BOT_TOKEN = "YOUR_BOT_TOKEN"
+BOT_TOKEN = "YOUR_BOT_TOKEN"
 
 # ID админа (твой Telegram ID)
 ADMIN_ID = 1190800579  # Замени на свой ID

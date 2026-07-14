@@ -85,9 +85,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
 
-    print(f"🆔 ADMIN ID: {ADMIN_ID})
-    print(f"🆔 User ID: {user_id}, Name: {user.first_name}")
-    await update.message.reply_text(f"🆔 Твой ID: {user_id}")
+    print(f"🆔 ADMIN_ID из переменной: {ADMIN_ID}")
+    print(f"🆔 User ID: {user_id}")
+    print(f"👤 User name: {user.first_name}")
+    
+    # Проверяем админа
+    if is_admin(user_id):
+        print("✅ Это админ!")
+    else:
+        print("❌ Не админ")
 
     
     

@@ -381,7 +381,6 @@ async def create_invite_code(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 print("📝 Регистрирую обработчики...")
 application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("help", help_command))
 # ... остальные обработчики
 
 print("🚀 Запускаю polling...")

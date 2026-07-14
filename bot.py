@@ -381,4 +381,234 @@ async def general_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(message)
 
 # Админ-панель
-async def admin_panel(update: Update, context: ContextTypes
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ У вас нет прав администратора!")
+        return
+    
+    keyboard = [
+        [KeyboardButton("🎫 Создать код приглашения")],
+        [KeyboardButton("📋 Список кодов"), KeyboardButton("👥 Список участников")],
+        [KeyboardButton("🗑️ Удалить участника")],
+        [KeyboardButton("◀️ Назад")]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    
+    await update.message.reply_text(
+        "👑 Админ-панель\n\nВыберите действие:",
+        reply_markup=reply_markup
+    )
+
+# Создание кода приглашения
+async def create_invite_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ У вас нет прав администратора!")
+        return
+    
+    code = generate_invite_code()
+    
+    conn = sqlite3.connect('running_club.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO invite_codes (code, created_by, created_date)
+        VALUES (?, ?, ?)
+    ''', (code, user_id, datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+    
+    await update.message.reply_text(
+        f"✅ Код приглашения создан!\n\n"
+        f"🎫 Код: `{code}`\n\n"
+        f"Отправьте этот код новому участнику.\n"
+        f"Для регистрации нужно написать боту: /code {code}",
+        parse_mode='Markdown'
+    )
+
+# Список кодов приглашений
+async def list_invite_codes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ У вас нет прав администратора!")
+        return
+    
+    conn = sqlite3.connect('running_club.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT ic.code, ic.created_date, ic.used_date, 
+               u.first_name, u.last_name
+        FROM invite_codes ic
+        LEFT JOIN users u ON ic.used_by = u.user_id
+        ORDER BY ic.created_date DESC
+    ''')
+    codes = cursor.fetchall()
+    conn.close()
+    
+    if not codes:
+        await update.message.reply_text("📋 Кодов приглашений пока нет.")
+        return
+    
+    message = "📋 Коды приглашений:\n\n"
+    
+    for code, created_date, used_date, first_name, last_name in codes:
+        created = datetime.fromisoformat(created_date).strftime('%d.%m.%Y %H:%M')
+        
+        if used_date:
+            used = datetime.fromisoformat(used_date).strftime('%d.%m.%Y %H:%M')
+            user_name = f"{first_name} {last_name or ''}".strip()
+            status = f"✅ Использован {used} ({user_name})"
+        else:
+            status = "⏳ Не использован"
+        
+        message += f"🎫 `{code}`\n"
+        message += f"   📅 Создан: {created}\n"
+        message += f"   {status}\n\n"
+    
+    await update.message.reply_text(message, parse_mode='Markdown')
+
+# Список участников
+async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ У вас нет прав администратора!")
+        return
+    
+    conn = sqlite3.connect('running_club.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT u.user_id, u.first_name, u.last_name, u.username, 
+               u.registration_date, COUNT(r.id) as runs_count,
+               COALESCE(SUM(r.distance), 0) as total_distance
+        FROM users u
+        LEFT JOIN runs r ON u.user_id = r.user_id
+        WHERE u.is_authorized = 1
+        GROUP BY u.user_id
+        ORDER BY u.registration_date DESC
+    ''')
+    users = cursor.fetchall()
+    conn.close()
+    
+    if not users:
+        await update.message.reply_text("👥 Участников пока нет.")
+        return
+    
+    message = "👥 Список участников:\n\n"
+    
+    for user_data in users:
+        user_id_db, first_name, last_name, username, reg_date, runs_count, total_distance = user_data
+        name = f"{first_name} {last_name or ''}".strip()
+        username_str = f"@{username}" if username else "без username"
+        reg_date_str = datetime.fromisoformat(reg_date).strftime('%d.%m.%Y')
+        
+        message += f"👤 {name} ({username_str})\n"
+        message += f"   🆔 ID: {user_id_db}\n"
+        message += f"   📅 Регистрация: {reg_date_str}\n"
+        message += f"   🏃‍♂️ Забегов: {runs_count} | 📏 {total_distance:.1f} км\n\n"
+    
+    await update.message.reply_text(message)
+
+# Удаление участника
+async def remove_user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ У вас нет прав администратора!")
+        return
+    
+    await update.message.reply_text(
+        "🗑️ Удаление участника\n\n"
+        "Отправьте ID пользователя для удаления.\n"
+        "ID можно найти в списке участников."
+    )
+    context.user_data['waiting_for_user_id'] = True
+
+# Обработка удаления пользователя
+async def process_remove_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    text = update.message.text
+    
+    try:
+        target_user_id = int(text)
+        
+        if target_user_id == ADMIN_ID:
+            await update.message.reply_text("❌ Нельзя удалить администратора!")
+            context.user_data['waiting_for_user_id'] = False
+            return
+        
+        conn = sqlite3.connect('running_club.db')
+        cursor = conn.cursor()
+        
+        # Проверяем существование пользователя
+        cursor.execute('SELECT first_name, last_name FROM users WHERE user_id = ?', (target_user_id,))
+        user_data = cursor.fetchone()
+        
+        if not user_data:
+            await update.message.reply_text("❌ Пользователь не найден!")
+            conn.close()
+            context.user_data['waiting_for_user_id'] = False
+            return
+        
+        # Удаляем забеги пользователя
+        cursor.execute('DELETE FROM runs WHERE user_id = ?', (target_user_id,))
+        
+        # Удаляем пользователя
+        cursor.execute('DELETE FROM users WHERE user_id = ?', (target_user_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        name = f"{user_data[0]} {user_data[1] or ''}".strip()
+        await update.message.reply_text(
+            f"✅ Пользователь {name} (ID: {target_user_id}) удален!\n"
+            f"Все его забеги также удалены."
+        )
+        
+        context.user_data['waiting_for_user_id'] = False
+        
+    except ValueError:
+        await update.message.reply_text("❌ Неверный формат ID! Введите числовой ID.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка при удалении: {str(e)}")
+        context.user_data['waiting_for_user_id'] = False
+
+# Обновляем обработчик сообщений для удаления участника
+async def handle_message_updated(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    text = update.message.text
+    
+    if not is_authorized(user_id):
+        await update.message.reply_text("❌ У вас нет доступа! Используйте /code для регистрации.")
+        return
+    
+    # Удалить участника
+    if text == "🗑️ Удалить участника" and is_admin(user_id):
+        await remove_user_start(update, context)
+        return
+    
+    # Остальной код handle_message остается таким же...
+    # (весь предыдущий код функции handle_message)
+
+# Основная функция
+def main():
+    # Инициализация БД
+    init_db()
+    
+    # Создание приложения
+    application = Application.builder().token(BOT_TOKEN).build()
+    
+    # Регистрация обработчиков
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("code", register_with_code))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # Запуск бота
+    print("🚀 Бот запущен!")
+    application.run_polling()
+
+if __name__ == '__main__':
+    main()

@@ -1,8 +1,3 @@
-# 🏃‍♂️ Полный код бота для корпоративного бегового клуба
-
-## 📁 **bot.py**
-
-```python
 import os
 import logging
 import sqlite3

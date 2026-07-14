@@ -80,22 +80,26 @@ def is_admin(user_id):
 def generate_invite_code():
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
 
-# Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
-
-    print(f"🆔 ADMIN_ID из переменной: {ADMIN_ID}")
+    
+    # ОТЛАДКА
+    print(f"🆔 ADMIN_ID: {ADMIN_ID}")
     print(f"🆔 User ID: {user_id}")
-    print(f"👤 User name: {user.first_name}")
     
-    # Проверяем админа
-    if is_admin(user_id):
-        print("✅ Это админ!")
-    else:
-        print("❌ Не админ")
-
-    
+    # Автоматически регистрируем админа ТОЛЬКО если он не зарегистрирован
+    if is_admin(user_id) and not is_authorized(user_id):
+        conn = sqlite3.connect('running_club.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO users 
+            (user_id, username, first_name, last_name, is_authorized, registration_date)
+            VALUES (?, ?, ?, ?, 1, ?)
+        ''', (user_id, user.username, user.first_name, user.last_name, datetime.now().isoformat()))
+        conn.commit()
+        conn.close()
+        print("✅ Админ зарегистрирован автоматически!")
     
     if is_authorized(user_id):
         keyboard = [
@@ -120,6 +124,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Для доступа введи код приглашения:\n"
             "Формат: /code ТВОЙ_КОД"
         )
+
 
 # Регистрация по коду
 async def register_with_code(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -1,21 +1,16 @@
+# 🏃‍♂️ Полный код бота для корпоративного бегового клуба
+
+## 📁 **bot.py**
+
+```python
 import os
 import logging
 import sqlite3
+import random
+import string
 from datetime import datetime
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-
-# Добавь эти строки отладки:
-print("🚀 Запуск бота...")
-print(f"BOT_TOKEN установлен: {os.getenv('BOT_TOKEN')}")
-print(f"ADMIN_ID установлен: {os.getenv('ADMIN_ID')}")
-
-bot_token = os.getenv("BOT_TOKEN")
-if not bot_token:
-    print("❌ BOT_TOKEN не найден!")
-    exit()
-
-print("✅ Создаю приложение...")
 
 # Настройка логирования
 logging.basicConfig(
@@ -23,13 +18,9 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Токен бота (добавь в переменные окружения Railway)
-BOT_TOKEN = "YOUR_BOT_TOKEN"
-
-# ID админа (твой Telegram ID)
-ADMIN_ID = 1190800579  # Замени на свой ID
-
-application = Application.builder().token(bot_token).build()
+# Переменные окружения
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
 # Инициализация базы данных
 def init_db():
@@ -89,6 +80,10 @@ def is_authorized(user_id):
 # Проверка админа
 def is_admin(user_id):
     return user_id == ADMIN_ID
+
+# Генерация кода приглашения
+def generate_invite_code():
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
 
 # Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -165,29 +160,82 @@ async def register_with_code(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "Нажми /start для начала работы."
     )
 
-# Добавление забега
-async def add_run(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Обработка текстовых сообщений
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    text = update.message.text
     
     if not is_authorized(user_id):
-        await update.message.reply_text("❌ У вас нет доступа!")
+        await update.message.reply_text("❌ У вас нет доступа! Используйте /code для регистрации.")
         return
     
-    await update.message.reply_text(
-        "📝 Добавление забега\n\n"
-        "Отправь данные в формате:\n"
-        "Город | Название забега | Фамилия | Дата | Километраж\n\n"
-        "Пример:\n"
-        "Москва | Московский марафон | Иванов | 15.10.2024 | 42.2"
-    )
+    # Добавление забега
+    if text == "📝 Добавить забег":
+        await update.message.reply_text(
+            "📝 Добавление забега\n\n"
+            "Отправь данные в формате:\n"
+            "Город | Название забега | Фамилия | Дата | Километраж\n\n"
+            "Пример:\n"
+            "Москва | Московский марафон | Иванов | 15.10.2024 | 42.2"
+        )
+        context.user_data['waiting_for_run'] = True
+        return
     
-    context.user_data['waiting_for_run'] = True
+    # Моя статистика
+    elif text == "📊 Моя статистика":
+        await my_stats(update, context)
+        return
+    
+    # Рейтинг
+    elif text == "🏆 Рейтинг":
+        await rating(update, context)
+        return
+    
+    # Общая статистика
+    elif text == "📈 Общая статистика":
+        await general_stats(update, context)
+        return
+    
+    # Админ-панель
+    elif text == "👑 Админ-панель" and is_admin(user_id):
+        await admin_panel(update, context)
+        return
+    
+    # Создать код приглашения
+    elif text == "🎫 Создать код приглашения" and is_admin(user_id):
+        await create_invite_code(update, context)
+        return
+    
+    # Список кодов
+    elif text == "📋 Список кодов" and is_admin(user_id):
+        await list_invite_codes(update, context)
+        return
+    
+    # Список участников
+    elif text == "👥 Список участников" and is_admin(user_id):
+        await list_users(update, context)
+        return
+    
+    # Назад из админ-панели
+    elif text == "◀️ Назад":
+        await start(update, context)
+        return
+    
+    # Обработка добавления забега
+    elif context.user_data.get('waiting_for_run'):
+        await process_run_data(update, context)
+        return
+    
+    # Обработка удаления пользователя
+    elif context.user_data.get('waiting_for_user_id'):
+        await process_remove_user(update, context)
+        return
+    
+    else:
+        await update.message.reply_text("Используйте кнопки меню для навигации.")
 
 # Обработка добавления забега
 async def process_run_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.user_data.get('waiting_for_run'):
-        return
-    
     user_id = update.effective_user.id
     text = update.message.text
     
@@ -239,10 +287,6 @@ async def process_run_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def my_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    if not is_authorized(user_id):
-        await update.message.reply_text("❌ У вас нет доступа!")
-        return
-    
     conn = sqlite3.connect('running_club.db')
     cursor = conn.cursor()
     cursor.execute('''
@@ -275,18 +319,12 @@ async def my_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Общий рейтинг
 async def rating(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    
-    if not is_authorized(user_id):
-        await update.message.reply_text("❌ У вас нет доступа!")
-        return
-    
     conn = sqlite3.connect('running_club.db')
     cursor = conn.cursor()
     cursor.execute('''
         SELECT u.first_name, u.last_name, 
                COUNT(r.id) as runs_count, 
-               SUM(r.distance) as total_distance
+               COALESCE(SUM(r.distance), 0) as total_distance
         FROM users u
         LEFT JOIN runs r ON u.user_id = r.user_id
         WHERE u.is_authorized = 1
@@ -299,8 +337,6 @@ async def rating(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = "🏆 Рейтинг участников:\n\n"
     
     for i, (first_name, last_name, runs_count, total_distance) in enumerate(results, 1):
-        total_distance = total_distance or 0
-        runs_count = runs_count or 0
         name = f"{first_name} {last_name or ''}".strip()
         
         if i == 1:
@@ -319,12 +355,6 @@ async def rating(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Общая статистика
 async def general_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    
-    if not is_authorized(user_id):
-        await update.message.reply_text("❌ У вас нет доступа!")
-        return
-    
     conn = sqlite3.connect('running_club.db')
     cursor = conn.cursor()
     
@@ -334,11 +364,11 @@ async def general_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cursor.execute('SELECT COUNT(*) FROM runs')
     total_runs = cursor.fetchone()
     
-    cursor.execute('SELECT SUM(distance) FROM runs')
-    total_distance = cursor.fetchone() or 0
+    cursor.execute('SELECT COALESCE(SUM(distance), 0) FROM runs')
+    total_distance = cursor.fetchone()
     
-    cursor.execute('SELECT AVG(distance) FROM runs')
-    avg_distance = cursor.fetchone() or 0
+    cursor.execute('SELECT COALESCE(AVG(distance), 0) FROM runs')
+    avg_distance = cursor.fetchone()
     
     conn.close()
     
@@ -351,38 +381,4 @@ async def general_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(message)
 
 # Админ-панель
-async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    
-    if not is_admin(user_id):
-        await update.message.reply_text("❌ У вас нет прав администратора!")
-        return
-    
-    keyboard = [
-        [KeyboardButton("🎫 Создать код приглашения")],
-        [KeyboardButton("📋 Список кодов"), KeyboardButton("👥 Список участников")],
-        [KeyboardButton("🗑️ Удалить забег"), KeyboardButton("🚫 Заблокировать участника")],
-        [KeyboardButton("◀️ Назад")]
-    ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    
-    await update.message.reply_text(
-        "👑 Админ-панель\n\nВыберите действие:",
-        reply_markup=reply_markup
-    )
-
-# Создание кода приглашения
-async def create_invite_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    
-    if not is_admin(user_id):
-        await update.message
-
-
-print("📝 Регистрирую обработчики...")
-application.add_handler(CommandHandler("start", start))
-# ... остальные обработчики
-
-print("🚀 Запускаю polling...")
-application.run_polling()
-print("⚠️ Polling остановлен!")
+async def admin_panel(update: Update, context: ContextTypes

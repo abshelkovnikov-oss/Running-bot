@@ -29,6 +29,8 @@ BOT_TOKEN = "YOUR_BOT_TOKEN"
 # ID админа (твой Telegram ID)
 ADMIN_ID = 1190800579  # Замени на свой ID
 
+application = Application.builder().token(bot_token).build()
+
 # Инициализация базы данных
 def init_db():
     conn = sqlite3.connect('running_club.db')

@@ -7,8 +7,8 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 # Добавь эти строки отладки:
 print("🚀 Запуск бота...")
-print(f"BOT_TOKEN установлен: {bool(os.getenv('BOT_TOKEN'))}")
-print(f"ADMIN_ID установлен: {bool(os.getenv('ADMIN_ID'))}")
+print(f"BOT_TOKEN установлен: {os.getenv('BOT_TOKEN')}")
+print(f"ADMIN_ID установлен: {os.getenv('ADMIN_ID')}")
 
 bot_token = os.getenv("BOT_TOKEN")
 if not bot_token:

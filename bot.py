@@ -84,6 +84,12 @@ def generate_invite_code():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
+
+    print(f"🆔 ADMIN ID: {ADMIN_ID})
+    print(f"🆔 User ID: {user_id}, Name: {user.first_name}")
+    await update.message.reply_text(f"🆔 Твой ID: {user_id}")
+
+    
     
     if is_authorized(user_id):
         keyboard = [

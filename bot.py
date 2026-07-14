@@ -19,8 +19,7 @@ from telegram.ext import (
 
 # ================== НАСТРОЙКИ ==================
 TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
-ADMIN_IDS = [int(id.strip()) for id in os.getenv("ADMIN_IDS", "123456789").split(",")]
-
+ADMIN_ID = int(os.getenv("ADMIN_ID", "123456789"))
 # Режимы разговора
 ENTERING_INVITE, ENTERING_RUN_DATA = range(2)
 
@@ -311,7 +310,7 @@ class DatabaseManager:
 
 # ================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==================
 def is_admin(user_id: int) -> bool:
-    return user_id in ADMIN_IDS
+    return user_id == ADMIN_ID
 
 def get_user_name(user_id: int) -> str:
     user = DatabaseManager.get_user(user_id)

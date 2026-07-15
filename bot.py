@@ -201,6 +201,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==================== КОМАНДА /total С КАЛЕНДАРЕМ ====================
 async def total_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начинаем диалог выбора периода"""
+    logging.info("📅 total_start вызван")
     now = datetime.now()
     keyboard = CalendarButtons.create_calendar(now.year, now.month, "start")
     
@@ -211,18 +212,20 @@ async def total_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=keyboard,
         parse_mode="Markdown"
     )
+    logging.info("📅 Календарь отправлен, возвращаем START_DATE")
     return START_DATE
 
 async def calendar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик нажатий на календарь"""
     query = update.callback_query
-    await query.answer()  # Важно: отвечаем на callback, чтобы кнопка не висела
+    logging.info(f"📅 Получен callback: {query.data}")
+    
+    # ОБЯЗАТЕЛЬНО: отвечаем на callback
+    await query.answer()
     
     data = query.data
     parts = data.split('_')
     prefix = parts[0]  # 'start' или 'end'
-    
-    logging.info(f"📅 Получен callback: {data}")
     
     # Обработка отмены
     if data.endswith('_cancel'):
@@ -247,6 +250,7 @@ async def calendar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=keyboard,
             parse_mode="Markdown"
         )
+        # Возвращаем правильное состояние
         return START_DATE if prefix == 'start' else END_DATE
     
     # Обработка выбора дня
@@ -274,6 +278,7 @@ async def process_date_selection(update: Update, context: ContextTypes.DEFAULT_T
     if prefix == 'start':
         context.user_data['start_period'] = selected_date
         
+        # ОТВЕЧАЕМ на callback
         await query.edit_message_text(
             f"✅ **Дата начала выбрана:** {date_str}\n\n"
             f"Теперь выберите дату **ОКОНЧАНИЯ** периода:",
@@ -311,6 +316,7 @@ async def process_date_selection(update: Update, context: ContextTypes.DEFAULT_T
             )
             return END_DATE
         
+        # ОТВЕЧАЕМ на callback
         await query.edit_message_text(
             f"✅ **Дата окончания выбрана:** {date_str}\n\n"
             f"⏳ Выполняется расчет...",
@@ -318,8 +324,7 @@ async def process_date_selection(update: Update, context: ContextTypes.DEFAULT_T
         )
         
         # Вызываем функцию расчета
-        result = await calculate_total(update, context)
-        return result
+        return await calculate_total(update, context)
 
 async def calculate_total(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Расчет итогов за период"""
@@ -702,6 +707,24 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     return ConversationHandler.END
 
+async def test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Тестовая команда для проверки callback-обработчиков"""
+    keyboard = [
+        [InlineKeyboardButton("Тестовая кнопка", callback_data="test_button")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        "Нажмите на кнопку для теста:",
+        reply_markup=reply_markup
+    )
+
+async def test_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик тестовой кнопки"""
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("✅ Кнопка работает!")
+    return ConversationHandler.END
+
 # ==================== СОЗДАНИЕ ОБРАБОТЧИКОВ ====================
 add_race_conv_handler = ConversationHandler(
     entry_points=[CommandHandler('add_race', start_add_race)],
@@ -740,9 +763,10 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("list", list_races))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("delete_race", delete_race))
+    app.add_handler(CommandHandler("test", test_callback))
+
     app.add_handler(add_race_conv_handler)
     app.add_handler(total_conv)
-    # НЕ ДОБАВЛЯЙТЕ отдельный CallbackQueryHandler - он уже есть в ConversationHandler!
     
     async def post_init(application):
         await set_bot_commands(application)

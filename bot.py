@@ -1,10 +1,9 @@
 import os
-import pandas as pd
 import logging
 import psycopg2
 import calendar
-from datetime import datetime, timedelta
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
+from datetime import datetime
+from telegram import Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, 
     CommandHandler, 
@@ -25,23 +24,22 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 ADMIN_IDS = [int(id.strip()) for id in os.getenv("ADMIN_IDS", "0").split(",")]
 
+# Состояния для ConversationHandler
 DATE, NAME, CITY, RACE_NAME, DISTANCE = range(5)
 START_DATE, END_DATE = range(2)
 
+# ==================== КАЛЕНДАРЬ ====================
 class CalendarButtons:
     """Класс для создания кнопок календаря"""
     
     @staticmethod
     def create_calendar(year: int, month: int, callback_prefix: str = "cal"):
         """Создает инлайн-клавиатуру с календарем"""
-        # Заголовок с месяцем и годом
         month_names = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
                       'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
         
-        # Создаем календарь
         cal = calendar.monthcalendar(year, month)
         
-        # Кнопки навигации
         keyboard = [
             [
                 InlineKeyboardButton(
@@ -60,7 +58,6 @@ class CalendarButtons:
             ]
         ]
         
-        # Добавляем дни месяца
         for week in cal:
             row = []
             for day in week:
@@ -75,7 +72,6 @@ class CalendarButtons:
                     )
             keyboard.append(row)
         
-        # Кнопки навигации по месяцам
         prev_month = month - 1 if month > 1 else 12
         prev_year = year if month > 1 else year - 1
         next_month = month + 1 if month < 12 else 1
@@ -87,14 +83,13 @@ class CalendarButtons:
             InlineKeyboardButton("▶️", callback_data=f"{callback_prefix}_{next_year}_{next_month}_nav"),
         ])
         
-        # Кнопка отмены
         keyboard.append([
             InlineKeyboardButton("❌ Отмена", callback_data=f"{callback_prefix}_cancel")
         ])
         
         return InlineKeyboardMarkup(keyboard)
 
-# --- КОМАНДА /list С ФИЛЬТРОМ ПО МЕСЯЦУ ---
+# ==================== КОМАНДА /list ====================
 async def list_races(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = "SELECT city, race_name, race_date, distance, participant_name FROM races"
     params = []
@@ -103,7 +98,6 @@ async def list_races(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
         arg = context.args[0].lower()
         
-        # Проверка формата ММ.ГГГГ (например, 05.2026)
         if "." in arg and len(arg) == 7:
             try:
                 month, year = arg.split(".")
@@ -120,7 +114,6 @@ async def list_races(update: Update, context: ContextTypes.DEFAULT_TYPE):
             params.append(int(arg))
             header = f"📅 **Забеги за {arg} год:**\n\n"
     else:
-        # По умолчанию — только будущие
         query += " WHERE race_date >= CURRENT_DATE"
         header = "🏃 **Предстоящие забеги:**\n\n"
 
@@ -158,12 +151,12 @@ async def list_races(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.error(e)
         await update.message.reply_text("Ошибка при чтении базы.")
 
-# --- НОВАЯ КОМАНДА /stats (РЕЙТИНГ УЧАСТНИКОВ) ---
+# ==================== КОМАНДА /stats ====================
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
-        # Группируем по ФИО, суммируем дистанцию и сортируем
+        
         cur.execute("""
             SELECT participant_name, ROUND(SUM(distance)) as total_km 
             FROM races 
@@ -205,17 +198,11 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.error(e)
         await update.message.reply_text("Ошибка при расчете статистики.")
 
-
-# --- НАЧАЛО ДИАЛОГА /total ---
+# ==================== КОМАНДА /total С КАЛЕНДАРЕМ ====================
 async def total_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начинаем диалог выбора периода"""
-    # Получаем текущую дату
     now = datetime.now()
-    year = now.year
-    month = now.month
-    
-    # Создаем календарь для выбора даты начала
-    keyboard = CalendarButtons.create_calendar(year, month, "start")
+    keyboard = CalendarButtons.create_calendar(now.year, now.month, "start")
     
     await update.message.reply_text(
         "📅 **Выберите дату НАЧАЛА периода:**\n\n"
@@ -233,7 +220,7 @@ async def calendar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     data = query.data
     parts = data.split('_')
-    prefix = parts[0]  # 'start' или 'end'
+    prefix = parts[0]
     
     # Обработка отмены
     if data.endswith('_cancel'):
@@ -244,12 +231,7 @@ async def calendar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Обработка "Сегодня"
     if data.endswith('_today'):
         today = datetime.now().date()
-        day = today.day
-        month = today.month
-        year = today.year
-        
-        # Имитируем выбор даты
-        callback_data = f"{prefix}_{year}_{month}_{day}"
+        callback_data = f"{prefix}_{today.year}_{today.month}_{today.day}"
         return await process_date_selection(update, context, callback_data)
     
     # Обработка навигации по месяцам
@@ -257,7 +239,6 @@ async def calendar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         year = int(parts[1])
         month = int(parts[2])
         
-        # Обновляем календарь
         keyboard = CalendarButtons.create_calendar(year, month, prefix)
         await query.edit_message_text(
             f"📅 **Выберите дату {'НАЧАЛА' if prefix == 'start' else 'ОКОНЧАНИЯ'} периода:**",
@@ -270,7 +251,6 @@ async def calendar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(parts) == 4 and parts[1].isdigit() and parts[2].isdigit() and parts[3].isdigit():
         return await process_date_selection(update, context, data)
     
-    # Если ничего не подошло
     await query.edit_message_text("❌ Неизвестная команда. Попробуйте еще раз.")
     return ConversationHandler.END
 
@@ -287,17 +267,14 @@ async def process_date_selection(update: Update, context: ContextTypes.DEFAULT_T
     date_str = selected_date.strftime('%d.%m.%Y')
     
     if prefix == 'start':
-        # Сохраняем дату начала
         context.user_data['start_period'] = selected_date
         
-        # Показываем подтверждение и переходим к выбору даты окончания
         await query.edit_message_text(
             f"✅ **Дата начала выбрана:** {date_str}\n\n"
             f"Теперь выберите дату **ОКОНЧАНИЯ** периода:",
             parse_mode="Markdown"
         )
         
-        # Показываем календарь для выбора даты окончания
         now = datetime.now()
         keyboard = CalendarButtons.create_calendar(now.year, now.month, "end")
         
@@ -309,10 +286,8 @@ async def process_date_selection(update: Update, context: ContextTypes.DEFAULT_T
         return END_DATE
         
     elif prefix == 'end':
-        # Сохраняем дату окончания
         context.user_data['end_period'] = selected_date
         
-        # Проверяем, что дата окончания не раньше даты начала
         start_date = context.user_data.get('start_period')
         if start_date and selected_date < start_date:
             await query.edit_message_text(
@@ -322,7 +297,6 @@ async def process_date_selection(update: Update, context: ContextTypes.DEFAULT_T
                 parse_mode="Markdown"
             )
             
-            # Показываем календарь снова
             now = datetime.now()
             keyboard = CalendarButtons.create_calendar(now.year, now.month, "end")
             await query.message.reply_text(
@@ -332,14 +306,12 @@ async def process_date_selection(update: Update, context: ContextTypes.DEFAULT_T
             )
             return END_DATE
         
-        # Все хорошо - считаем итоги
         await query.edit_message_text(
             f"✅ **Дата окончания выбрана:** {date_str}\n\n"
             f"⏳ Выполняется расчет...",
             parse_mode="Markdown"
         )
         
-        # Вызываем функцию расчета
         return await calculate_total(update, context)
 
 async def calculate_total(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -360,8 +332,7 @@ async def calculate_total(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 1. Получаем общую сумму пробега ЗА ВСЁ ВРЕМЯ
         cur.execute("SELECT COALESCE(SUM(distance), 0) FROM races")
         total_all_time = cur.fetchone()[0]
-        if hasattr(total_all_time, '__float__'):
-            total_all_time = float(total_all_time)
+        total_all_time = float(total_all_time) if total_all_time else 0.0
 
         # 2. Получаем сумму пробега ЗА ВЫБРАННЫЙ ПЕРИОД
         cur.execute(
@@ -369,8 +340,7 @@ async def calculate_total(update: Update, context: ContextTypes.DEFAULT_TYPE):
             (start_dt, end_dt)
         )
         total_period = cur.fetchone()[0]
-        if hasattr(total_period, '__float__'):
-            total_period = float(total_period)
+        total_period = float(total_period) if total_period else 0.0
 
         # 3. Ищем ближайший город
         cur.execute(
@@ -394,8 +364,7 @@ async def calculate_total(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if next_city_data:
             next_city_name, next_city_dist = next_city_data
-            if hasattr(next_city_dist, '__float__'):
-                next_city_dist = float(next_city_dist)
+            next_city_dist = float(next_city_dist) if next_city_dist else 0.0
             left_to_city = next_city_dist - total_all_time
             response += f"📍 Следующий город: {next_city_name}\n"
             response += f"🛣️ До него осталось: {left_to_city:.2f} км\n"
@@ -415,7 +384,6 @@ async def calculate_total(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.effective_message.reply_text(response, parse_mode="Markdown")
         
-        # Очищаем данные
         context.user_data.clear()
         return ConversationHandler.END
         
@@ -434,149 +402,55 @@ async def calculate_total(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if conn:
             conn.close()
 
-# --- ПОЛУЧАЕМ ДАТУ НАЧАЛА ---
+# ==================== СТАРЫЕ ФУНКЦИИ ДЛЯ ТЕКСТОВОГО ВВОДА (для совместимости) ====================
 async def get_start_date_old(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         date_text = update.message.text
-        # Проверяем корректность даты
         start_dt = datetime.strptime(date_text, '%d.%m.%Y').date()
         context.user_data['start_period'] = start_dt
-        await update.message.reply_text(f"Принято: {start_dt}. Теперь введите дату окончания (ДД.ММ.ГГГГ):")
+        
+        await update.message.reply_text(
+            f"✅ Дата начала выбрана: {start_dt.strftime('%d.%m.%Y')}\n\n"
+            f"Теперь введите дату окончания в формате ДД.ММ.ГГГГ\n"
+            f"или используйте календарь, который появится выше."
+        )
+        
+        # Показываем календарь для выбора даты окончания
+        now = datetime.now()
+        keyboard = CalendarButtons.create_calendar(now.year, now.month, "end")
+        await update.message.reply_text(
+            "📅 Или выберите дату в календаре:",
+            reply_markup=keyboard
+        )
         return END_DATE
     except ValueError:
-        await update.message.reply_text("Неверный формат! Введите дату как ДД.ММ.ГГГГ")
+        await update.message.reply_text("❌ Неверный формат! Введите дату как ДД.ММ.ГГГГ")
         return START_DATE
 
-# --- ПОЛУЧАЕМ ДАТУ ОКОНЧАНИЯ И СЧИТАЕМ ---
 async def get_end_date_old(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         date_text = update.message.text
         end_dt = datetime.strptime(date_text, '%d.%m.%Y').date()
-        start_dt = context.user_data['start_period']
-
-        conn = psycopg2.connect(DATABASE_URL)
-        cur = conn.cursor()
-
-        # 1. Считаем сумму за период
-
-        cur.close()
-        conn.close()
-
-        await update.message.reply_text(
-            f"📊 **Итоги:**\n\n"
-            f"🔹 За период с {start_dt.strftime('%d.%m.%Y')} по {end_dt.strftime('%d.%m.%Y')}\n"
-            f"🏃 Пробежали: **{period_sum:.2f} км**\n\n"
-            f"🌍 Всего за всё время: **{total_sum:.2f} км**",
-            parse_mode="Markdown"
-        )
+        context.user_data['end_period'] = end_dt
         
-        context.user_data.clear() # Очищаем данные
-        return ConversationHandler.END
-
+        start_dt = context.user_data.get('start_period')
+        if start_dt and end_dt < start_dt:
+            await update.message.reply_text(
+                f"❌ Дата окончания ({end_dt.strftime('%d.%m.%Y')}) "
+                f"не может быть раньше даты начала ({start_dt.strftime('%d.%m.%Y')})!\n"
+                f"Пожалуйста, введите дату снова."
+            )
+            return END_DATE
+        
+        await update.message.reply_text("⏳ Выполняется расчет...")
+        return await calculate_total(update, context)
+        
     except ValueError:
-        await update.message.reply_text("Неверный формат! Введите дату как ДД.ММ.ГГГГ")
+        await update.message.reply_text("❌ Неверный формат! Введите дату как ДД.ММ.ГГГГ")
         return END_DATE
 
-# Функция отмены
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Расчет отменен.")
-    return ConversationHandler.END
-
-async def get_end_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    conn = None
-    cur = None
-    try:
-        # Парсим дату, которую ввел пользователь
-        date_text = update.message.text
-        end_dt = datetime.strptime(date_text, '%d.%m.%Y').date()
-        start_dt = context.user_data.get('start_period')
-
-        if not start_dt:
-            await update.message.reply_text("Ошибка: не задана дата начала периода.")
-            return ConversationHandler.END
-
-        conn = psycopg2.connect(DATABASE_URL)
-        cur = conn.cursor()
-    
-        # 1. Получаем общую сумму пробега ЗА ВСЁ ВРЕМЯ (для определения города)
-        cur.execute(
-            "SELECT COALESCE(ROUND(SUM(distance)), 0) FROM races"
-        )
-        total_all_time = cur.fetchone()[0]
-        if hasattr(total_all_time, '__float__'):
-            total_all_time = float(total_all_time)
-
-        # 2. Получаем сумму пробега ЗА ВЫБРАННЫЙ ПЕРИОД (для отчета)
-        cur.execute(
-            "SELECT COALESCE(SUM(distance), 0) FROM races WHERE race_date >= %s AND race_date <= %s",
-            (start_dt, end_dt)
-        )
-        total_period = cur.fetchone()[0]
-        if hasattr(total_period, '__float__'):
-            total_period = float(total_period)
-
-        # 3. Ищем ближайший город (исходя из общего пробега за всё время)
-        cur.execute(
-            "SELECT city_name, distance_from_start FROM city_distances WHERE distance_from_start > %s ORDER BY distance_from_start ASC LIMIT 1",
-            (total_all_time,)
-        )
-        next_city_data = cur.fetchone()
-
-        # 4. Получаем дистанцию до Москвы
-        cur.execute(
-            "SELECT distance_from_start FROM city_distances WHERE city_name ILIKE 'москва' LIMIT 1"
-        )
-        moscow_data = cur.fetchone()
-        moscow_dist = float(moscow_data[0]) if moscow_data else 0.0
-
-        # Формируем сообщение
-        response = f"Итоги периода с {start_dt.strftime('%d.%m.%Y')} по {end_dt.strftime('%d.%m.%Y')}:\n"
-        response += f"🏁 Пройдено за период: {total_period:.2f} км\n"
-        response += f"📊 Всего пройдено за всё время: {total_all_time:.2f} км\n\n"
-
-        if next_city_data:
-            next_city_name, next_city_dist = next_city_data
-            if hasattr(next_city_dist, '__float__'):
-                next_city_dist = float(next_city_dist)
-            left_to_city = next_city_dist - total_all_time
-            response += f"📍 Следующий город: {next_city_name}\n"
-            response += f"🛣️ До него осталось: {left_to_city:.2f} км\n"
-        else:
-            response += "🎉 Поздравляем! Вы достигли конечной точки!\n"
-
-        if moscow_dist > 0:
-            if total_all_time < moscow_dist:
-                left_to_moscow = moscow_dist - total_all_time
-                response += f"🏛️ До Москвы осталось: {left_to_moscow:.2f} км"
-            else:
-                response += "🇷🇺 Вы уже в Москве (или проехали её)!"
-        
-        await update.message.reply_text(response)
-        return ConversationHandler.END
-        
-    except ValueError as e:
-        logging.error(f"Ошибка парсинга даты: {e}")
-        await update.message.reply_text("Пожалуйста, введите дату в формате ДД.ММ.ГГГГ")
-        return ConversationHandler.END
-        
-    except psycopg2.Error as e:
-        logging.error(f"Ошибка базы данных: {e}")
-        await update.message.reply_text("Произошла ошибка при работе с базой данных.")
-        return ConversationHandler.END
-        
-    except Exception as e:
-        logging.error(f"Ошибка в функции расчет: {e}", exc_info=True)
-        await update.message.reply_text("Произошла ошибка при расчете итогов.")
-        return ConversationHandler.END
-        
-    finally:
-        if cur:
-            cur.close()
-        if conn:
-            conn.close()
-
+# ==================== АДМИНСКИЕ ФУНКЦИИ ====================
 def is_admin(user_id: int) -> bool:
-    """Проверяет, является ли пользователь администратором"""
     return user_id in ADMIN_IDS
 
 async def delete_race(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -627,9 +501,6 @@ async def delete_race(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Удаленная запись:\n{race_info}"
         )
         
-    except psycopg2.Error as e:
-        logging.error(f"Ошибка базы данных при удалении: {e}")
-        await update.message.reply_text(f"❌ Ошибка при удалении: {e}")
     except Exception as e:
         logging.error(f"Ошибка при удалении: {e}")
         await update.message.reply_text(f"❌ Произошла ошибка: {e}")
@@ -639,11 +510,10 @@ async def delete_race(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if conn:
             conn.close()
 
+# ==================== ФУНКЦИИ ДЛЯ /add_race ====================
 async def start_add_race(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Начинаем процесс добавления забега с проверкой прав"""
     user_id = update.effective_user.id
     
-    # Проверяем, является ли пользователь администратором
     if not is_admin(user_id):
         await update.message.reply_text(
             "⛔ Доступ запрещен!\n"
@@ -658,7 +528,6 @@ async def start_add_race(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return DATE
 
 async def add_race_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получаем дату забега"""
     try:
         date_text = update.message.text
         race_date = datetime.strptime(date_text, '%d.%m.%Y').date()
@@ -677,7 +546,6 @@ async def add_race_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return DATE
 
 async def add_race_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получаем ФИО участника"""
     participant_name = update.message.text.strip()
     if len(participant_name) < 2:
         await update.message.reply_text(
@@ -686,7 +554,7 @@ async def add_race_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return NAME
     
-    context.user_data['full_name'] = participant_name  # Сохраняем как full_name, но в БД будет participant_name
+    context.user_data['full_name'] = participant_name
     
     await update.message.reply_text(
         f"✅ ФИО сохранено: {participant_name}\n"
@@ -695,7 +563,6 @@ async def add_race_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return CITY
 
 async def add_race_city(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получаем город проведения забега"""
     city = update.message.text.strip()
     if len(city) < 2:
         await update.message.reply_text(
@@ -713,7 +580,6 @@ async def add_race_city(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return RACE_NAME
 
 async def add_race_name_event(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получаем название забега"""
     race_name = update.message.text.strip()
     if len(race_name) < 2:
         await update.message.reply_text(
@@ -731,11 +597,9 @@ async def add_race_name_event(update: Update, context: ContextTypes.DEFAULT_TYPE
     return DISTANCE
 
 async def add_race_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получаем дистанцию и сохраняем все данные в базу"""
     conn = None
     cur = None
     try:
-        # Парсим дистанцию
         distance_text = update.message.text.replace(',', '.')
         distance = float(distance_text)
         
@@ -746,15 +610,12 @@ async def add_race_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return DISTANCE
         
-        # Получаем все данные из context
         race_date = context.user_data.get('race_date')
-        participant_name = context.user_data.get('full_name')  # В context хранится как full_name
+        participant_name = context.user_data.get('full_name')
         city = context.user_data.get('city')
         race_name = context.user_data.get('race_name')
         
-        # Проверяем, что все данные есть
         if not all([race_date, participant_name, city, race_name]):
-            logging.error(f"Отсутствуют данные: race_date={race_date}, participant_name={participant_name}, city={city}, race_name={race_name}")
             await update.message.reply_text(
                 "❌ Ошибка: не все данные заполнены.\n"
                 "Пожалуйста, начните добавление забега заново командой /add_race"
@@ -762,11 +623,9 @@ async def add_race_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.clear()
             return ConversationHandler.END
         
-        # Сохраняем в базу данных
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
         
-        # Используем participant_name вместо full_name
         cur.execute(
             """INSERT INTO races (race_date, participant_name, city, race_name, distance) 
                VALUES (%s, %s, %s, %s, %s)""",
@@ -774,7 +633,6 @@ async def add_race_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         conn.commit()
         
-        # Формируем сообщение об успешном добавлении
         response = (
             "✅ Забег успешно добавлен!\n\n"
             f"📅 Дата: {race_date.strftime('%d.%m.%Y')}\n"
@@ -785,35 +643,12 @@ async def add_race_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         await update.message.reply_text(response)
-        
-        # Очищаем данные пользователя
         context.user_data.clear()
-        
-        return ConversationHandler.END
-        
-    except ValueError as e:
-        logging.error(f"Ошибка парсинга дистанции: {e}")
-        await update.message.reply_text(
-            "❌ Неверный формат дистанции!\n"
-            "Пожалуйста, введите число (например, 42.2 или 21,1):"
-        )
-        return DISTANCE
-        
-    except psycopg2.Error as e:
-        logging.error(f"Ошибка базы данных при добавлении забега: {e}")
-        await update.message.reply_text(
-            f"❌ Произошла ошибка при сохранении в базу данных.\n"
-            f"Ошибка: {str(e)[:100]}\n"
-            "Пожалуйста, попробуйте позже."
-        )
         return ConversationHandler.END
         
     except Exception as e:
         logging.error(f"Ошибка при добавлении забега: {e}", exc_info=True)
-        await update.message.reply_text(
-            f"❌ Произошла непредвиденная ошибка:\n{str(e)[:100]}\n"
-            "Пожалуйста, попробуйте позже."
-        )
+        await update.message.reply_text(f"❌ Произошла ошибка: {str(e)[:100]}")
         return ConversationHandler.END
         
     finally:
@@ -823,7 +658,6 @@ async def add_race_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn.close()
 
 async def cancel_add_race(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отмена добавления забега"""
     await update.message.reply_text(
         "❌ Добавление забега отменено.\n"
         "Все введенные данные были удалены."
@@ -831,8 +665,8 @@ async def cancel_add_race(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     return ConversationHandler.END
 
+# ==================== МЕНЮ БОТА ====================
 async def set_bot_commands(application):
-    """Устанавливает команды в меню бота"""
     commands = [
         BotCommand("start", "🚀 Запустить бота"),
         BotCommand("add_race", "➕ Добавить новый забег"),
@@ -844,7 +678,6 @@ async def set_bot_commands(application):
     logging.info("✅ Команды меню успешно установлены!")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /start"""
     user_name = update.effective_user.first_name    
     welcome_text = (
         f"👋 Привет, {user_name}!\n\n"
@@ -858,21 +691,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(welcome_text)
 
-async def update_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обновляет меню команд (только для админов)"""
-    user_id = update.effective_user.id
-    
-    if not is_admin(user_id):
-        await update.message.reply_text("⛔ Доступ запрещен!")
-        return
-    
-    await set_bot_commands(context.bot)
-    await update.message.reply_text("✅ Меню команд обновлено!")
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❌ Действие отменено.")
+    context.user_data.clear()
+    return ConversationHandler.END
 
+# ==================== СОЗДАНИЕ ОБРАБОТЧИКОВ ====================
 add_race_conv_handler = ConversationHandler(
-    entry_points=[
-        CommandHandler('add_race', start_add_race),  # или MessageHandler для кнопки
-    ],
+    entry_points=[CommandHandler('add_race', start_add_race)],
     states={
         DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_race_date)],
         NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_race_name)],
@@ -880,9 +706,7 @@ add_race_conv_handler = ConversationHandler(
         RACE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_race_name_event)],
         DISTANCE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_race_distance)],
     },
-    fallbacks=[
-        CommandHandler('cancel', cancel_add_race),
-    ],
+    fallbacks=[CommandHandler('cancel', cancel_add_race)],
     allow_reentry=True,
 )
 
@@ -891,37 +715,29 @@ total_conv = ConversationHandler(
     states={
         START_DATE: [
             CallbackQueryHandler(calendar_callback, pattern="^start_"),
-            # Разрешаем также текстовый ввод для совместимости
             MessageHandler(filters.TEXT & ~filters.COMMAND, get_start_date_old),
         ],
         END_DATE: [
             CallbackQueryHandler(calendar_callback, pattern="^end_"),
-            # Разрешаем также текстовый ввод для совместимости
             MessageHandler(filters.TEXT & ~filters.COMMAND, get_end_date_old),
         ],
     },
-    fallbacks=[
-        CommandHandler('cancel', cancel),
-    ],
+    fallbacks=[CommandHandler('cancel', cancel)],
     allow_reentry=True,
 )
 
-# --- СТАНДАРТНЫЙ ЗАПУСК ---
+# ==================== ЗАПУСК ====================
 if __name__ == '__main__':
-    # init_db() — функция должна быть определена выше (как в прошлых ответах)
-    # init_cities_db()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("list", list_races))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("delete_race", delete_race))
-    app.add_handler(CommandHandler("update_menu", update_menu))  
     app.add_handler(add_race_conv_handler)
-    app.add_handler(total_conv) 
+    app.add_handler(total_conv)
     app.add_handler(CallbackQueryHandler(calendar_callback, pattern="^(start|end)_"))
     
-    # Устанавливаем команды в меню при запуске
     async def post_init(application):
         await set_bot_commands(application)
     

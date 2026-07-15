@@ -4,6 +4,7 @@ import pandas as pd
 import psycopg2
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import ConversationHandler, MessageHandler, filters
 
 # Настройка логирования
 logging.basicConfig(
@@ -109,12 +110,86 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(e)
         await update.message.reply_text("Ошибка при расчете статистики.")
+START_DATE, END_DATE = range(2)
+
+# --- НАЧАЛО ДИАЛОГА /total ---
+async def total_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Введите дату начала периода в формате ДД.ММ.ГГГГ (например, 01.01.2024):")
+    return START_DATE
+
+# --- ПОЛУЧАЕМ ДАТУ НАЧАЛА ---
+async def get_start_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        date_text = update.message.text
+        # Проверяем корректность даты
+        start_dt = datetime.strptime(date_text, '%d.%m.%Y').date()
+        context.user_data['start_period'] = start_dt
+        await update.message.reply_text(f"Принято: {start_dt}. Теперь введите дату окончания (ДД.ММ.ГГГГ):")
+        return END_DATE
+    except ValueError:
+        await update.message.reply_text("Неверный формат! Введите дату как ДД.ММ.ГГГГ")
+        return START_DATE
+
+# --- ПОЛУЧАЕМ ДАТУ ОКОНЧАНИЯ И СЧИТАЕМ ---
+async def get_end_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        date_text = update.message.text
+        end_dt = datetime.strptime(date_text, '%d.%m.%Y').date()
+        start_dt = context.user_data['start_period']
+
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+
+        # 1. Считаем сумму за период
+        cur.execute(
+            "SELECT SUM(distance) FROM races WHERE race_date >= %s AND race_date <= %s",
+            (start_dt, end_dt)
+        )
+        period_sum = cur.fetchone()[0] or 0
+
+        # 2. Считаем общую сумму всего
+        cur.execute("SELECT SUM(distance) FROM races")
+        total_sum = cur.fetchone()[0] or 0
+
+        cur.close()
+        conn.close()
+
+        await update.message.reply_text(
+            f"📊 **Итоги:**\n\n"
+            f"🔹 За период с {start_dt.strftime('%d.%m.%Y')} по {end_dt.strftime('%d.%m.%Y')}\n"
+            f"🏃 Пробежали: **{period_sum:.2f} км**\n\n"
+            f"🌍 Всего за всё время: **{total_sum:.2f} км**",
+            parse_mode="Markdown"
+        )
+        
+        context.user_data.clear() # Очищаем данные
+        return ConversationHandler.END
+
+    except ValueError:
+        await update.message.reply_text("Неверный формат! Введите дату как ДД.ММ.ГГГГ")
+        return END_DATE
+
+# Функция отмены
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Расчет отменен.")
+    return ConversationHandler.END
+
 
 # --- СТАНДАРТНЫЙ ЗАПУСК ---
 if __name__ == '__main__':
     # init_db() — функция должна быть определена выше (как в прошлых ответах)
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    total_conv = ConversationHandler(
+        entry_points=[CommandHandler('total', total_start)],
+        states={
+            START_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_start_date)],
+            END_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_end_date)],
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+    )
+
+    app.add_handler(total_conv)
     app.add_handler(CommandHandler("list", list_races))
     app.add_handler(CommandHandler("stats", stats))
     # Добавь сюда остальные хендлеры (start, add_race)

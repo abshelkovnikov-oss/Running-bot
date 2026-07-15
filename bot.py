@@ -2,6 +2,7 @@ import os
 import logging
 import pandas as pd
 import psycopg2
+from datetime import datetime
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
@@ -11,145 +12,132 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# --- ЧТЕНИЕ НАСТРОЕК ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ ---
+# --- ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-# На railway переменная обычно называется DATABASE_URL или DATABASE_URL
-DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("DATABASE_URL")
-# Твоя логика получения списка админов
+DATABASE_URL = os.getenv("DATABASE_URL")
 ADMIN_IDS = [int(id.strip()) for id in os.getenv("ADMIN_IDS", "123456789").split(",")]
-
 EXCEL_FILE = "data.xlsx"
 
-# --- ИНИЦИАЛИЗАЦИЯ БАЗЫ (СОЗДАНИЕ ТАБЛИЦЫ И ИМПОРТ) ---
+# --- ИНИЦИАЛИЗАЦИЯ БАЗЫ ---
 def init_db():
     if not DATABASE_URL:
-        logging.error("Переменная DATABASE_URL не установлена!")
         return
-
     try:
-        # Подключаемся к PostgreSQL
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
-
-        # Создаем таблицу, если она еще не создана
         cur.execute("""
             CREATE TABLE IF NOT EXISTS races (
                 id SERIAL PRIMARY KEY,
                 city TEXT,
                 race_name TEXT,
                 race_date DATE,
-                distance FLOAT
+                distance FLOAT,
+                participant_name TEXT
             );
         """)
-
-        # Проверяем, есть ли уже данные
         cur.execute("SELECT COUNT(*) FROM races")
-        if cur.fetchone()[0] == 0:
-            if os.path.exists(EXCEL_FILE):
-                logging.info("База пуста. Загружаю данные из Excel...")
-                df = pd.read_excel(EXCEL_FILE)
-                for _, row in df.iterrows():
-                    cur.execute(
-                        "INSERT INTO races (city, race_name, race_date, distance) VALUES (%s, %s, %s, %s)",
-                        (row['Город'], row['Название'], row['Дата'], row['Дистанция'])
-                    )
-                conn.commit()
-                logging.info(f"Загружено {len(df)} записей.")
-            else:
-                logging.warning("Файл Excel не найден. База осталась пустой.")
-        
+        if cur.fetchone()[0] == 0 and os.path.exists(EXCEL_FILE):
+            df = pd.read_excel(EXCEL_FILE)
+            for _, row in df.iterrows():
+                cur.execute(
+                    "INSERT INTO races (city, race_name, race_date, distance, participant_name) VALUES (%s, %s, %s, %s, %s)",
+                    (row['Город'], row['Название'], row['Дата'], row['Дистанция'], row['ФИО'])
+                )
+            conn.commit()
         cur.close()
         conn.close()
     except Exception as e:
-        logging.error(f"Ошибка БД при старте: {e}")
+        logging.error(f"Ошибка БД: {e}")
 
-# --- КОМАНДЫ БОТА ---
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 Привет! Я бот для учета забегов.\n\n"
-        "Команды:\n"
-        "/list — список всех забегов\n"
-        "/add — добавить забег (только для админов)"
-    )
+# --- ОБРАБОТКА СПИСКА С ФИЛЬТРОМ ---
 
 async def list_races(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = "SELECT city, race_name, race_date, distance, participant_name FROM races"
+    params = []
+    header = "🏃 **Предстоящие забеги:**\n\n"
+
+    # Логика фильтрации
+    if context.args:
+        arg = context.args[0].lower()
+        if arg == "все":
+            header = "🏃 **Весь список забегов:**\n\n"
+            query += " ORDER BY race_date ASC"
+        elif arg.isdigit() and len(arg) == 4:
+            header = f"🏃 **Забеги за {arg} год:**\n\n"
+            query += " WHERE EXTRACT(YEAR FROM race_date) = %s ORDER BY race_date ASC"
+            params.append(int(arg))
+        else:
+            await update.message.reply_text("Неверный формат. Используйте: `/list`, `/list все` или `/list 2025`")
+            return
+    else:
+        # По умолчанию — только будущие
+        query += " WHERE race_date >= CURRENT_DATE ORDER BY race_date ASC"
+
     try:
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
-        # Сортируем по дате, чтобы список был логичным
-        cur.execute("SELECT city, race_name, race_date, distance FROM races ORDER BY race_date ASC")
+        cur.execute(query, params)
         rows = cur.fetchall()
         cur.close()
         conn.close()
 
         if not rows:
-            await update.message.reply_text("Забегов пока нет.")
+            await update.message.reply_text("По вашему запросу забегов не найдено.")
             return
 
-        # Начинаем собирать сообщения
-        header = "🏃 **Список всех забегов:**\n\n"
         messages = []
         current_msg = header
 
         for r in rows:
             date_str = r[2].strftime('%d.%m.%Y')
-            race_info = f"📍 {r[0]} — *{r[1]}*\n🗓 {date_str} | {r[3]} км\n\n"
+            race_info = f"👤 *{r[4]}*\n📍 {r[0]} | {r[1]}\n🗓 {date_str} | 🏁 {r[3]} км\n\n"
             
-            # Если добавление нового забега превысит лимит 4000 символов (берем с запасом)
             if len(current_msg) + len(race_info) > 4000:
                 messages.append(current_msg)
-                current_msg = race_info # Начинаем новое сообщение
+                current_msg = race_info
             else:
                 current_msg += race_info
         
-        # Добавляем последний кусок текста
         messages.append(current_msg)
 
-        # Отправляем все части по очереди
         for msg in messages:
             await update.message.reply_text(msg, parse_mode="Markdown")
 
     except Exception as e:
-        logging.error(f"Ошибка при чтении: {e}")
-        await update.message.reply_text("Произошла ошибка при выводе списка.")
+        logging.error(f"Ошибка: {e}")
+        await update.message.reply_text("Ошибка при получении данных.")
 
 async def add_race(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Проверка на админа
     if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("У вас нет прав администратора.")
         return
-
     try:
-        # Формат: /add Москва Марафон 2024-05-20 10.5
+        # Формат: /add Город Название ГГГГ-ММ-ДД Дистанция ФИО
         args = context.args
         city, name, r_date, dist = args[0], args[1], args[2], float(args[3])
+        fio = " ".join(args[4:]) # Берем всё остальное как ФИО
 
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO races (city, race_name, race_date, distance) VALUES (%s, %s, %s, %s)",
-            (city, name, r_date, dist)
+            "INSERT INTO races (city, race_name, race_date, distance, participant_name) VALUES (%s, %s, %s, %s, %s)",
+            (city, name, r_date, dist, fio)
         )
         conn.commit()
         cur.close()
         conn.close()
+        await update.message.reply_text(f"✅ Забег добавлен!")
+    except:
+        await update.message.reply_text("Ошибка! Формат: `/add Москва Марафон 2025-05-20 42.2 Иван Иванов`", parse_mode="Markdown")
 
-        await update.message.reply_text(f"✅ Забег '{name}' добавлен!")
-    except Exception:
-        await update.message.reply_text("Ошибка! Используйте: /add Город Название ГГГГ-ММ-ДД Дистанция")
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Используйте:\n/list — только будущие\n/list все — все записи\n/list 2024 — за год"
+    )
 
-# --- ЗАПУСК ---
 if __name__ == '__main__':
-    # 1. Сначала готовим базу данных
     init_db()
-
-    # 2. Запускаем бота
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
+    app = ApplicationBuilder.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("list", list_races))
     app.add_handler(CommandHandler("add", add_race))
-
-    logging.info("Бот запущен и готов к работе!")
     app.run_polling()

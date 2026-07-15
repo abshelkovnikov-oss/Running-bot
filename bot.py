@@ -214,6 +214,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def get_end_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    conn = None
+    cur = None
     try:
         # Парсим дату, которую ввел пользователь
         date_text = update.message.text
@@ -229,29 +231,24 @@ async def get_end_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
         # 1. Получаем общую сумму пробега за выбранный период
         cur.execute(
-            "SELECT SUM(distance) FROM races WHERE race_date &gt;= %s AND race_date &lt;= %s",
+            "SELECT COALESCE(SUM(distance), 0) FROM races WHERE race_date >= %s AND race_date <= %s",
             (start_dt, end_dt)
         )
-        res_total = cur.fetchone()
-        # Проверяем на None, если за период нет записей
-        total_dist = float(res_total) if res_total and res_total is not None else 0.0
+        total_dist = cur.fetchone()[0]  # Теперь всегда будет число, не None
 
         # 2. Ищем ближайший город (первый город, чья дистанция больше нашего пробега)
         cur.execute(
-            "SELECT city_name, distance_from_start FROM city_distances WHERE distance_from_start &gt; %s ORDER BY distance_from_start ASC LIMIT 1",
+            "SELECT city_name, distance_from_start FROM city_distances WHERE distance_from_start > %s ORDER BY distance_from_start ASC LIMIT 1",
             (total_dist,)
         )
         next_city_data = cur.fetchone()
 
         # 3. Получаем дистанцию до Москвы (последняя точка)
         cur.execute(
-            "SELECT distance_from_start FROM city_distances WHERE city_name = 'Москва' OR city_name = 'москва' LIMIT 1"
+            "SELECT distance_from_start FROM city_distances WHERE city_name ILIKE 'москва' LIMIT 1"
         )
         moscow_data = cur.fetchone()
-        moscow_dist = float(moscow_res) if moscow_res and moscow_res is not None else 0.0
-
-        cur.close()
-        conn.close()
+        moscow_dist = float(moscow_data[0]) if moscow_data else 0.0
 
         # Формируем сообщение
         response = f"Итоги периода с {start_dt.strftime('%d.%m.%Y')} по {end_dt.strftime('%d.%m.%Y')}:\n"
@@ -265,24 +262,41 @@ async def get_end_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             response += "🎉 Поздравляем! Вы достигли конечной точки!\n"
 
-        if moscow_dist > 0 and total_dist < moscow_dist:
-                    left_to_moscow = moscow_dist - total_dist
-                    response += f"🏛️ До Москвы осталось: {left_to_moscow:.2f} км"
-        elif total_dist >= moscow_dist:
-                    response += "🇷🇺 Вы уже в Москве (или проехали её)!"
+        if moscow_dist > 0:
+            if total_dist < moscow_dist:
+                left_to_moscow = moscow_dist - total_dist
+                response += f"🏛️ До Москвы осталось: {left_to_moscow:.2f} км"
+            else:
+                response += "🇷🇺 Вы уже в Москве (или проехали её)!"
         
         await update.message.reply_text(response)
         return ApplicationBuilder.END
         
+    except ValueError as e:
+        logging.error(f"Ошибка парсинга даты: {e}")
+        await update.message.reply_text("Пожалуйста, введите дату в формате ДД.ММ.ГГГГ")
+        return ApplicationBuilder.END
+        
+    except psycopg2.Error as e:
+        logging.error(f"Ошибка базы данных: {e}")
+        await update.message.reply_text("Произошла ошибка при работе с базой данных.")
+        return ApplicationBuilder.END
+        
     except Exception as e:
-        logging.error(f"Ошибка в функции расчет: {e}")
+        logging.error(f"Ошибка в функции расчет: {e}", exc_info=True)  # Добавлен exc_info для детальной трассировки
         await update.message.reply_text("Произошла ошибка при расчете итогов.")
         return ApplicationBuilder.END
+        
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 # --- СТАНДАРТНЫЙ ЗАПУСК ---
 if __name__ == '__main__':
     # init_db() — функция должна быть определена выше (как в прошлых ответах)
-    init_cities_db()
+    # init_cities_db()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     total_conv = ConversationHandler(

@@ -23,47 +23,6 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 ADMIN_IDS = [int(id.strip()) for id in os.getenv("ADMIN_IDS", "0").split(",")]
 
-CITIES_EXCEL = "cities.xlsx"
-
-# --- ИНИЦИАЛИЗАЦИЯ ТАБЛИЦЫ ГОРОДОВ ---
-def init_cities_db():
-    try:
-        conn = psycopg2.connect(DATABASE_URL)
-        cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS city_distances (
-                id SERIAL PRIMARY KEY,
-                city_name TEXT,
-                distance_from_start FLOAT
-            );
-        """)
-        
-        # ИСПРАВЛЕНИЕ: берем [0], так как fetchone() возвращает кортеж типа (0,)
-        cur.execute("SELECT COUNT(*) FROM city_distances")
-        count_result = cur.fetchone()[0] 
-        
-        print(f"В таблице сейчас строк: {count_result}") # Для отладки
-
-        if count_result == 0:
-            if os.path.exists(CITIES_EXCEL):
-                df = pd.read_excel(CITIES_EXCEL)
-                for _, row in df.iterrows():
-                    cur.execute(
-                        "INSERT INTO city_distances (city_name, distance_from_start) VALUES (%s, %s)",
-                        (row['Город'], row['Расстояние'])
-                    )
-                conn.commit()
-                logging.info("Таблица городов успешно загружена.")
-                print("Данные успешно загружены из Excel!")
-            else:
-                logging.warning(f"Файл {CITIES_EXCEL} не найден!")
-        
-        cur.close()
-        conn.close()
-    except Exception as e:
-        logging.error(f"Ошибка при инициализации таблицы городов: {e}")
-
-
 # --- КОМАНДА /list С ФИЛЬТРОМ ПО МЕСЯЦУ ---
 async def list_races(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = "SELECT city, race_name, race_date, distance, participant_name FROM races"

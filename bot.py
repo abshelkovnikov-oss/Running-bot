@@ -111,11 +111,30 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         text = "🏆 **Рейтинг участников по километрам:**\n\n"
-        for i, row in enumerate(rows, 1):
-            name = row[0]
-            dist = row[1]
-            text += f"{i}. *{name}* — {dist:.2f} км\n"
-
+       for i, row in enumerate(rows, 1):
+            name = row[0] if row[0] else "Неизвестный"
+            dist = int(row[1]) if row[1] is not None else 0
+            
+            if i == 1:
+                medal = "🥇 "
+            elif i == 2:
+                medal = "🥈 "
+            elif i == 3:
+                medal = "🥉 "
+            else:
+                medal = f"{i}. "
+            
+            text += f"{medal}*{name}* — {dist} км\n"
+        
+        # Показываем, что есть еще участники
+        cur2 = conn.cursor()
+        cur2.execute("SELECT COUNT(DISTINCT participant_name) FROM races")
+        total_count = cur2.fetchone()[0]
+        cur2.close()
+        
+        if total_count > 50:
+            text += f"\n... и еще {total_count - 50} участников. Используйте /stats_all для полного списка."
+            
         await update.message.reply_text(text, parse_mode="Markdown")
     except Exception as e:
         logging.error(e)

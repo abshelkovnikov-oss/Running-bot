@@ -67,13 +67,11 @@ test_conv = ConversationHandler(
     entry_points=[CommandHandler("test", test_start)],
     states={
         TEST_STATE: [
-            CallbackQueryHandler(test_callback_handler, pattern="^test_"),
+            CallbackQueryHandler(test_callback_handler),
         ],
     },
     fallbacks=[CommandHandler("cancel", test_cancel)],
-    allow_reentry=True,
 )
-
 # ==================== ЗАПУСК ====================
 
 if __name__ == '__main__':

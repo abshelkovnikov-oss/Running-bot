@@ -124,17 +124,14 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 medal = f"{i}. "
             
-            text += f"{medal}*{name}* — {dist} км\n"
-        
-        # Показываем, что есть еще участники
-        cur2 = conn.cursor()
-        cur2.execute("SELECT COUNT(DISTINCT participant_name) FROM races")
-        total_count = cur2.fetchone()[0]
-        cur2.close()
-        
-        if total_count > 50:
-            text += f"\n... и еще {total_count - 50} участников. Используйте /stats_all для полного списка."
+            line = f"{medal}*{name}* — {dist} км\n"
             
+            if len(text) + len(line) > 4000:
+                await update.message.reply_text(text, parse_mode="Markdown")
+                text = "📊 **Продолжение рейтинга:**\n\n" + line
+            else:
+                text += line
+        
         await update.message.reply_text(text, parse_mode="Markdown")
     except Exception as e:
         logging.error(e)

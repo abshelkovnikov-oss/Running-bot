@@ -232,7 +232,9 @@ async def get_end_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "SELECT SUM(distance) FROM races WHERE race_date &gt;= %s AND race_date &lt;= %s",
             (start_dt, end_dt)
         )
-        total_dist = cur.fetchone() or 0.0
+        res_total = cur.fetchone()
+        # Проверяем на None, если за период нет записей
+        total_dist = float(res_total) if res_total and res_total is not None else 0.0
 
         # 2. Ищем ближайший город (первый город, чья дистанция больше нашего пробега)
         cur.execute(
@@ -246,7 +248,7 @@ async def get_end_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "SELECT distance_from_start FROM city_distances WHERE city_name = 'Москва' OR city_name = 'москва' LIMIT 1"
         )
         moscow_data = cur.fetchone()
-        moscow_dist = moscow_data if moscow_data else 0
+        moscow_dist = float(moscow_res) if moscow_res and moscow_res is not None else 0.0
 
         cur.close()
         conn.close()

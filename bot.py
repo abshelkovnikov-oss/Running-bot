@@ -2,14 +2,16 @@ import os
 import pandas as pd
 import logging
 import psycopg2
-from datetime import datetime  # Добавьте эту строку
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, BotCommand
+import calendar
+from datetime import datetime, timedelta
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, 
     CommandHandler, 
     MessageHandler, 
     filters, 
     ConversationHandler, 
+    CallbackQueryHandler,
     ContextTypes
 )
 
@@ -25,6 +27,72 @@ ADMIN_IDS = [int(id.strip()) for id in os.getenv("ADMIN_IDS", "0").split(",")]
 
 DATE, NAME, CITY, RACE_NAME, DISTANCE = range(5)
 START_DATE, END_DATE = range(2)
+
+class CalendarButtons:
+    """Класс для создания кнопок календаря"""
+    
+    @staticmethod
+    def create_calendar(year: int, month: int, callback_prefix: str = "cal"):
+        """Создает инлайн-клавиатуру с календарем"""
+        # Заголовок с месяцем и годом
+        month_names = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+                      'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
+        
+        # Создаем календарь
+        cal = calendar.monthcalendar(year, month)
+        
+        # Кнопки навигации
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    f"◀️ {month_names[month-1]} {year} ▶️",
+                    callback_data=f"{callback_prefix}_none"
+                )
+            ],
+            [
+                InlineKeyboardButton("Пн", callback_data=f"{callback_prefix}_none"),
+                InlineKeyboardButton("Вт", callback_data=f"{callback_prefix}_none"),
+                InlineKeyboardButton("Ср", callback_data=f"{callback_prefix}_none"),
+                InlineKeyboardButton("Чт", callback_data=f"{callback_prefix}_none"),
+                InlineKeyboardButton("Пт", callback_data=f"{callback_prefix}_none"),
+                InlineKeyboardButton("Сб", callback_data=f"{callback_prefix}_none"),
+                InlineKeyboardButton("Вс", callback_data=f"{callback_prefix}_none"),
+            ]
+        ]
+        
+        # Добавляем дни месяца
+        for week in cal:
+            row = []
+            for day in week:
+                if day == 0:
+                    row.append(InlineKeyboardButton(" ", callback_data=f"{callback_prefix}_none"))
+                else:
+                    row.append(
+                        InlineKeyboardButton(
+                            str(day), 
+                            callback_data=f"{callback_prefix}_{year}_{month}_{day}"
+                        )
+                    )
+            keyboard.append(row)
+        
+        # Кнопки навигации по месяцам
+        prev_month = month - 1 if month > 1 else 12
+        prev_year = year if month > 1 else year - 1
+        next_month = month + 1 if month < 12 else 1
+        next_year = year if month < 12 else year + 1
+        
+        keyboard.append([
+            InlineKeyboardButton("◀️", callback_data=f"{callback_prefix}_{prev_year}_{prev_month}_nav"),
+            InlineKeyboardButton("Сегодня", callback_data=f"{callback_prefix}_today"),
+            InlineKeyboardButton("▶️", callback_data=f"{callback_prefix}_{next_year}_{next_month}_nav"),
+        ])
+        
+        # Кнопка отмены
+        keyboard.append([
+            InlineKeyboardButton("❌ Отмена", callback_data=f"{callback_prefix}_cancel")
+        ])
+        
+        return InlineKeyboardMarkup(keyboard)
 
 # --- КОМАНДА /list С ФИЛЬТРОМ ПО МЕСЯЦУ ---
 async def list_races(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -140,11 +208,234 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- НАЧАЛО ДИАЛОГА /total ---
 async def total_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Введите дату начала периода в формате ДД.ММ.ГГГГ (например, 01.01.2024):")
+    """Начинаем диалог выбора периода"""
+    # Получаем текущую дату
+    now = datetime.now()
+    year = now.year
+    month = now.month
+    
+    # Создаем календарь для выбора даты начала
+    keyboard = CalendarButtons.create_calendar(year, month, "start")
+    
+    await update.message.reply_text(
+        "📅 **Выберите дату НАЧАЛА периода:**\n\n"
+        "Нажмите на день в календаре.\n"
+        "Используйте стрелки для переключения месяцев.",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
     return START_DATE
 
+async def calendar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик нажатий на календарь"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    parts = data.split('_')
+    prefix = parts[0]  # 'start' или 'end'
+    
+    # Обработка отмены
+    if data.endswith('_cancel'):
+        await query.edit_message_text("❌ Выбор даты отменен.")
+        context.user_data.clear()
+        return ConversationHandler.END
+    
+    # Обработка "Сегодня"
+    if data.endswith('_today'):
+        today = datetime.now().date()
+        day = today.day
+        month = today.month
+        year = today.year
+        
+        # Имитируем выбор даты
+        callback_data = f"{prefix}_{year}_{month}_{day}"
+        return await process_date_selection(update, context, callback_data)
+    
+    # Обработка навигации по месяцам
+    if data.endswith('_nav'):
+        year = int(parts[1])
+        month = int(parts[2])
+        
+        # Обновляем календарь
+        keyboard = CalendarButtons.create_calendar(year, month, prefix)
+        await query.edit_message_text(
+            f"📅 **Выберите дату {'НАЧАЛА' if prefix == 'start' else 'ОКОНЧАНИЯ'} периода:**",
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Обработка выбора дня
+    if len(parts) == 4 and parts[1].isdigit() and parts[2].isdigit() and parts[3].isdigit():
+        return await process_date_selection(update, context, data)
+    
+    # Если ничего не подошло
+    await query.edit_message_text("❌ Неизвестная команда. Попробуйте еще раз.")
+    return ConversationHandler.END
+
+async def process_date_selection(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data: str):
+    """Обработка выбранной даты"""
+    query = update.callback_query
+    parts = callback_data.split('_')
+    prefix = parts[0]
+    year = int(parts[1])
+    month = int(parts[2])
+    day = int(parts[3])
+    
+    selected_date = datetime(year, month, day).date()
+    date_str = selected_date.strftime('%d.%m.%Y')
+    
+    if prefix == 'start':
+        # Сохраняем дату начала
+        context.user_data['start_period'] = selected_date
+        
+        # Показываем подтверждение и переходим к выбору даты окончания
+        await query.edit_message_text(
+            f"✅ **Дата начала выбрана:** {date_str}\n\n"
+            f"Теперь выберите дату **ОКОНЧАНИЯ** периода:",
+            parse_mode="Markdown"
+        )
+        
+        # Показываем календарь для выбора даты окончания
+        now = datetime.now()
+        keyboard = CalendarButtons.create_calendar(now.year, now.month, "end")
+        
+        await query.message.reply_text(
+            "📅 **Выберите дату ОКОНЧАНИЯ периода:**",
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+        return END_DATE
+        
+    elif prefix == 'end':
+        # Сохраняем дату окончания
+        context.user_data['end_period'] = selected_date
+        
+        # Проверяем, что дата окончания не раньше даты начала
+        start_date = context.user_data.get('start_period')
+        if start_date and selected_date < start_date:
+            await query.edit_message_text(
+                f"❌ **Ошибка!**\n\n"
+                f"Дата окончания ({date_str}) не может быть раньше даты начала ({start_date.strftime('%d.%m.%Y')}).\n\n"
+                f"Пожалуйста, выберите дату окончания снова:",
+                parse_mode="Markdown"
+            )
+            
+            # Показываем календарь снова
+            now = datetime.now()
+            keyboard = CalendarButtons.create_calendar(now.year, now.month, "end")
+            await query.message.reply_text(
+                "📅 **Выберите дату ОКОНЧАНИЯ периода:**",
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+            return END_DATE
+        
+        # Все хорошо - считаем итоги
+        await query.edit_message_text(
+            f"✅ **Дата окончания выбрана:** {date_str}\n\n"
+            f"⏳ Выполняется расчет...",
+            parse_mode="Markdown"
+        )
+        
+        # Вызываем функцию расчета
+        return await calculate_total(update, context)
+
+async def calculate_total(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Расчет итогов за период"""
+    conn = None
+    cur = None
+    try:
+        start_dt = context.user_data.get('start_period')
+        end_dt = context.user_data.get('end_period')
+        
+        if not start_dt or not end_dt:
+            await update.effective_message.reply_text("❌ Ошибка: не выбраны даты периода.")
+            return ConversationHandler.END
+        
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+    
+        # 1. Получаем общую сумму пробега ЗА ВСЁ ВРЕМЯ
+        cur.execute("SELECT COALESCE(SUM(distance), 0) FROM races")
+        total_all_time = cur.fetchone()[0]
+        if hasattr(total_all_time, '__float__'):
+            total_all_time = float(total_all_time)
+
+        # 2. Получаем сумму пробега ЗА ВЫБРАННЫЙ ПЕРИОД
+        cur.execute(
+            "SELECT COALESCE(SUM(distance), 0) FROM races WHERE race_date >= %s AND race_date <= %s",
+            (start_dt, end_dt)
+        )
+        total_period = cur.fetchone()[0]
+        if hasattr(total_period, '__float__'):
+            total_period = float(total_period)
+
+        # 3. Ищем ближайший город
+        cur.execute(
+            "SELECT city_name, distance_from_start FROM city_distances WHERE distance_from_start > %s ORDER BY distance_from_start ASC LIMIT 1",
+            (total_all_time,)
+        )
+        next_city_data = cur.fetchone()
+
+        # 4. Получаем дистанцию до Москвы
+        cur.execute(
+            "SELECT distance_from_start FROM city_distances WHERE city_name ILIKE 'москва' LIMIT 1"
+        )
+        moscow_data = cur.fetchone()
+        moscow_dist = float(moscow_data[0]) if moscow_data else 0.0
+
+        # Формируем сообщение
+        response = f"📊 **Итоги периода**\n"
+        response += f"с {start_dt.strftime('%d.%m.%Y')} по {end_dt.strftime('%d.%m.%Y')}:\n\n"
+        response += f"🏁 Пройдено за период: {total_period:.2f} км\n"
+        response += f"📊 Всего пройдено за всё время: {total_all_time:.2f} км\n\n"
+
+        if next_city_data:
+            next_city_name, next_city_dist = next_city_data
+            if hasattr(next_city_dist, '__float__'):
+                next_city_dist = float(next_city_dist)
+            left_to_city = next_city_dist - total_all_time
+            response += f"📍 Следующий город: {next_city_name}\n"
+            response += f"🛣️ До него осталось: {left_to_city:.2f} км\n"
+        else:
+            response += "🎉 Поздравляем! Вы достигли конечной точки!\n"
+
+        if moscow_dist > 0:
+            if total_all_time < moscow_dist:
+                left_to_moscow = moscow_dist - total_all_time
+                response += f"🏛️ До Москвы осталось: {left_to_moscow:.2f} км"
+            else:
+                response += "🇷🇺 Вы уже в Москве (или проехали её)!"
+        
+        # Отправляем результат
+        if update.callback_query:
+            await update.callback_query.message.reply_text(response, parse_mode="Markdown")
+        else:
+            await update.effective_message.reply_text(response, parse_mode="Markdown")
+        
+        # Очищаем данные
+        context.user_data.clear()
+        return ConversationHandler.END
+        
+    except Exception as e:
+        logging.error(f"Ошибка в функции расчета: {e}", exc_info=True)
+        error_msg = "❌ Произошла ошибка при расчете итогов."
+        if update.callback_query:
+            await update.callback_query.message.reply_text(error_msg)
+        else:
+            await update.effective_message.reply_text(error_msg)
+        return ConversationHandler.END
+        
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
 # --- ПОЛУЧАЕМ ДАТУ НАЧАЛА ---
-async def get_start_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def get_start_date_old(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         date_text = update.message.text
         # Проверяем корректность даты
@@ -157,7 +448,7 @@ async def get_start_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return START_DATE
 
 # --- ПОЛУЧАЕМ ДАТУ ОКОНЧАНИЯ И СЧИТАЕМ ---
-async def get_end_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def get_end_date_old(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         date_text = update.message.text
         end_dt = datetime.strptime(date_text, '%d.%m.%Y').date()
@@ -596,12 +887,23 @@ add_race_conv_handler = ConversationHandler(
 )
 
 total_conv = ConversationHandler(
-       entry_points=[CommandHandler('total', total_start)],
-       states={
-           START_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_start_date)],
-           END_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_end_date)],
-       },
-       fallbacks=[CommandHandler('cancel', cancel)],
+    entry_points=[CommandHandler('total', total_start)],
+    states={
+        START_DATE: [
+            CallbackQueryHandler(calendar_callback, pattern="^start_"),
+            # Разрешаем также текстовый ввод для совместимости
+            MessageHandler(filters.TEXT & ~filters.COMMAND, get_start_date_old),
+        ],
+        END_DATE: [
+            CallbackQueryHandler(calendar_callback, pattern="^end_"),
+            # Разрешаем также текстовый ввод для совместимости
+            MessageHandler(filters.TEXT & ~filters.COMMAND, get_end_date_old),
+        ],
+    },
+    fallbacks=[
+        CommandHandler('cancel', cancel),
+    ],
+    allow_reentry=True,
 )
 
 # --- СТАНДАРТНЫЙ ЗАПУСК ---
@@ -617,6 +919,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("update_menu", update_menu))  
     app.add_handler(add_race_conv_handler)
     app.add_handler(total_conv) 
+    app.add_handler(CallbackQueryHandler(calendar_callback, pattern="^(start|end)_"))
     
     # Устанавливаем команды в меню при запуске
     async def post_init(application):

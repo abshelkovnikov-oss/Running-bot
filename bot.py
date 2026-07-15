@@ -38,17 +38,25 @@ def init_cities_db():
             );
         """)
         
-        # Проверяем, пуста ли таблица, чтобы не дублировать данные
+        # ИСПРАВЛЕНИЕ: берем [0], так как fetchone() возвращает кортеж типа (0,)
         cur.execute("SELECT COUNT(*) FROM city_distances")
-        if cur.fetchone() == 0 and os.path.exists(CITIES_EXCEL):
-            df = pd.read_excel(CITIES_EXCEL)
-            for _, row in df.iterrows():
-                cur.execute(
-                    "INSERT INTO city_distances (city_name, distance_from_start) VALUES (%s, %s)",
-                    (row['Город'], row['Расстояние'])
-                )
-            conn.commit()
-            logging.info("Таблица городов успешно загружена.")
+        count_result = cur.fetchone()[0] 
+        
+        print(f"В таблице сейчас строк: {count_result}") # Для отладки
+
+        if count_result == 0:
+            if os.path.exists(CITIES_EXCEL):
+                df = pd.read_excel(CITIES_EXCEL)
+                for _, row in df.iterrows():
+                    cur.execute(
+                        "INSERT INTO city_distances (city_name, distance_from_start) VALUES (%s, %s)",
+                        (row['Город'], row['Расстояние'])
+                    )
+                conn.commit()
+                logging.info("Таблица городов успешно загружена.")
+                print("Данные успешно загружены из Excel!")
+            else:
+                logging.warning(f"Файл {CITIES_EXCEL} не найден!")
         
         cur.close()
         conn.close()

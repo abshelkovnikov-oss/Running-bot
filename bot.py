@@ -3,7 +3,7 @@ import pandas as pd
 import logging
 import psycopg2
 from datetime import datetime  # Добавьте эту строку
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     ApplicationBuilder, 
     CommandHandler, 
@@ -22,6 +22,25 @@ logging.basicConfig(
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 ADMIN_IDS = [int(id.strip()) for id in os.getenv("ADMIN_IDS", "0").split(",")]
+
+DATE, NAME, CITY, RACE_NAME, DISTANCE = range(5)
+
+add_race_conv_handler = ConversationHandler(
+    entry_points=[
+        CommandHandler('add_race', start_add_race),  # или MessageHandler для кнопки
+    ],
+    states={
+        DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_race_date)],
+        NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_race_name)],
+        CITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_race_city)],
+        RACE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_race_name_event)],
+        DISTANCE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_race_distance)],
+    },
+    fallbacks=[
+        CommandHandler('cancel', cancel_add_race),
+    ],
+    allow_reentry=True,
+)
 
 # --- КОМАНДА /list С ФИЛЬТРОМ ПО МЕСЯЦУ ---
 async def list_races(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -265,6 +284,191 @@ async def get_end_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if conn:
             conn.close()
 
+def is_admin(user_id: int) -> bool:
+    """Проверяет, является ли пользователь администратором"""
+    return user_id in ADMIN_IDS
+
+async def start_add_race(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Начинаем процесс добавления забега с проверкой прав"""
+    user_id = update.effective_user.id
+    
+    # Проверяем, является ли пользователь администратором
+    if not is_admin(user_id):
+        await update.message.reply_text(
+            "⛔ Доступ запрещен!\n"
+            "Только администраторы могут добавлять новые забеги."
+        )
+        return ConversationHandler.END
+    
+    await update.message.reply_text(
+        "🏃 Начинаем добавление нового забега!\n"
+        "Введите дату забега в формате ДД.ММ.ГГГГ (например, 15.07.2026):"
+    )
+    return DATE
+
+async def add_race_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Получаем дату забега"""
+    try:
+        date_text = update.message.text
+        race_date = datetime.strptime(date_text, '%d.%m.%Y').date()
+        context.user_data['race_date'] = race_date
+        
+        await update.message.reply_text(
+            "✅ Дата сохранена!\n"
+            "Теперь введите ФИО участника:"
+        )
+        return NAME
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Неверный формат даты!\n"
+            "Пожалуйста, введите дату в формате ДД.ММ.ГГГГ (например, 15.07.2026):"
+        )
+        return DATE
+
+async def add_race_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Получаем ФИО участника"""
+    full_name = update.message.text.strip()
+    if len(full_name) < 2:
+        await update.message.reply_text(
+            "❌ Имя слишком короткое!\n"
+            "Пожалуйста, введите полное ФИО:"
+        )
+        return NAME
+    
+    context.user_data['full_name'] = full_name
+    
+    await update.message.reply_text(
+        f"✅ ФИО сохранено: {full_name}\n"
+        "Теперь введите город, где проходил забег:"
+    )
+    return CITY
+
+async def add_race_city(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Получаем город проведения забега"""
+    city = update.message.text.strip()
+    if len(city) < 2:
+        await update.message.reply_text(
+            "❌ Название города слишком короткое!\n"
+            "Пожалуйста, введите корректное название города:"
+        )
+        return CITY
+    
+    context.user_data['city'] = city
+    
+    await update.message.reply_text(
+        f"✅ Город сохранен: {city}\n"
+        "Теперь введите название забега (например, 'Московский марафон 2026'):"
+    )
+    return RACE_NAME
+
+async def add_race_name_event(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Получаем название забега"""
+    race_name = update.message.text.strip()
+    if len(race_name) < 2:
+        await update.message.reply_text(
+            "❌ Название слишком короткое!\n"
+            "Пожалуйста, введите корректное название забега:"
+        )
+        return RACE_NAME
+    
+    context.user_data['race_name'] = race_name
+    
+    await update.message.reply_text(
+        f"✅ Название забега сохранено: {race_name}\n"
+        "Теперь введите дистанцию забега в километрах (например, 42.2):"
+    )
+    return DISTANCE
+
+async def add_race_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Получаем дистанцию и сохраняем все данные в базу"""
+    conn = None
+    cur = None
+    try:
+        # Парсим дистанцию
+        distance_text = update.message.text.replace(',', '.')
+        distance = float(distance_text)
+        
+        if distance <= 0:
+            await update.message.reply_text(
+                "❌ Дистанция должна быть больше 0!\n"
+                "Пожалуйста, введите корректную дистанцию:"
+            )
+            return DISTANCE
+        
+        # Получаем все данные из context
+        race_date = context.user_data.get('race_date')
+        full_name = context.user_data.get('full_name')
+        city = context.user_data.get('city')
+        race_name = context.user_data.get('race_name')
+        
+        # Сохраняем в базу данных
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        
+        cur.execute(
+            """INSERT INTO races (race_date, full_name, city, race_name, distance) 
+               VALUES (%s, %s, %s, %s, %s)""",
+            (race_date, full_name, city, race_name, distance)
+        )
+        conn.commit()
+        
+        # Формируем сообщение об успешном добавлении
+        response = (
+            "✅ Забег успешно добавлен!\n\n"
+            f"📅 Дата: {race_date.strftime('%d.%m.%Y')}\n"
+            f"👤 Участник: {full_name}\n"
+            f"📍 Город: {city}\n"
+            f"🏃 Забег: {race_name}\n"
+            f"📏 Дистанция: {distance:.2f} км"
+        )
+        
+        await update.message.reply_text(response)
+        
+        # Очищаем данные пользователя
+        context.user_data.clear()
+        
+        return ConversationHandler.END
+        
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Неверный формат дистанции!\n"
+            "Пожалуйста, введите число (например, 42.2 или 21,1):"
+        )
+        return DISTANCE
+        
+    except psycopg2.Error as e:
+        logging.error(f"Ошибка базы данных при добавлении забега: {e}")
+        await update.message.reply_text(
+            "❌ Произошла ошибка при сохранении в базу данных.\n"
+            "Пожалуйста, попробуйте позже."
+        )
+        return ConversationHandler.END
+        
+    except Exception as e:
+        logging.error(f"Ошибка при добавлении забега: {e}", exc_info=True)
+        await update.message.reply_text(
+            "❌ Произошла непредвиденная ошибка.\n"
+            "Пожалуйста, попробуйте позже."
+        )
+        return ConversationHandler.END
+        
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+async def cancel_add_race(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отмена добавления забега"""
+    await update.message.reply_text(
+        "❌ Добавление забега отменено.\n"
+        "Все введенные данные были удалены."
+    )
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+
 # --- СТАНДАРТНЫЙ ЗАПУСК ---
 if __name__ == '__main__':
     # init_db() — функция должна быть определена выше (как в прошлых ответах)
@@ -283,6 +487,7 @@ if __name__ == '__main__':
     app.add_handler(total_conv)
     app.add_handler(CommandHandler("list", list_races))
     app.add_handler(CommandHandler("stats", stats))
+    application.add_handler(add_race_conv_handler)
     # Добавь сюда остальные хендлеры (start, add_race)
 
     app.run_polling()

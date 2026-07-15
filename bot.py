@@ -97,7 +97,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cur = conn.cursor()
         # Группируем по ФИО, суммируем дистанцию и сортируем
         cur.execute("""
-            SELECT participant_name, SUM(distance) as total_km 
+            SELECT participant_name, ROUND(SUM(distance)) as total_km 
             FROM races 
             GROUP BY participant_name 
             ORDER BY total_km DESC
@@ -193,7 +193,7 @@ async def get_end_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
         # 1. Получаем общую сумму пробега ЗА ВСЁ ВРЕМЯ (для определения города)
         cur.execute(
-            "SELECT COALESCE(SUM(distance), 0) FROM races"
+            "SELECT COALESCE(ROUND(SUM(distance)), 0) FROM races"
         )
         total_all_time = cur.fetchone()[0]
         if hasattr(total_all_time, '__float__'):

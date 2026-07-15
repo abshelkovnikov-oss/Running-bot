@@ -53,7 +53,10 @@ async def test_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
     
     logging.info("✅ Callback обработан")
     return ConversationHandler.END
-
+    
+async def test_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("🔥 CALLBACK СРАБОТАЛ")
+    
 async def test_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Отмена теста"""
     await update.message.reply_text("❌ Тест отменен.")
@@ -67,7 +70,7 @@ test_conv = ConversationHandler(
     entry_points=[CommandHandler("test", test_start)],
     states={
         TEST_STATE: [
-            CallbackQueryHandler(test_callback_handler),
+           # CallbackQueryHandler(test_callback_handler),
         ],
     },
     fallbacks=[CommandHandler("cancel", test_cancel)],
@@ -86,6 +89,7 @@ if __name__ == '__main__':
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     
     # Добавляем обработчик
+    app.add_handler(CallbackQueryHandler(test_callback_handler))
     app.add_handler(test_conv)
     
     # Добавляем команду /start

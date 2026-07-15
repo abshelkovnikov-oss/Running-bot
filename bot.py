@@ -224,7 +224,7 @@ async def get_end_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if not start_dt:
             await update.message.reply_text("Ошибка: не задана дата начала периода.")
-            return ApplicationBuilder.END
+            return ConversationHandler.END
 
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
@@ -234,7 +234,11 @@ async def get_end_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "SELECT COALESCE(SUM(distance), 0) FROM races WHERE race_date >= %s AND race_date <= %s",
             (start_dt, end_dt)
         )
-        total_dist = cur.fetchone()[0]  # Теперь всегда будет число, не None
+        total_dist = cur.fetchone()[0]
+        
+        # Если total_dist - Decimal, конвертируем в float
+        if hasattr(total_dist, '__float__'):
+            total_dist = float(total_dist)
 
         # 2. Ищем ближайший город (первый город, чья дистанция больше нашего пробега)
         cur.execute(
@@ -243,7 +247,7 @@ async def get_end_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         next_city_data = cur.fetchone()
 
-        # 3. Получаем дистанцию до Москвы (последняя точка)
+        # 3. Получаем дистанцию до Москвы
         cur.execute(
             "SELECT distance_from_start FROM city_distances WHERE city_name ILIKE 'москва' LIMIT 1"
         )
@@ -256,6 +260,9 @@ async def get_end_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if next_city_data:
             next_city_name, next_city_dist = next_city_data
+            # Конвертируем Decimal в float если нужно
+            if hasattr(next_city_dist, '__float__'):
+                next_city_dist = float(next_city_dist)
             left_to_city = next_city_dist - total_dist
             response += f"📍 Следующий город: {next_city_name}\n"
             response += f"🛣️ До него осталось: {left_to_city:.2f} км\n"
@@ -270,22 +277,22 @@ async def get_end_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 response += "🇷🇺 Вы уже в Москве (или проехали её)!"
         
         await update.message.reply_text(response)
-        return ApplicationBuilder.END
+        return ConversationHandler.END
         
     except ValueError as e:
         logging.error(f"Ошибка парсинга даты: {e}")
         await update.message.reply_text("Пожалуйста, введите дату в формате ДД.ММ.ГГГГ")
-        return ApplicationBuilder.END
+        return ConversationHandler.END
         
     except psycopg2.Error as e:
         logging.error(f"Ошибка базы данных: {e}")
         await update.message.reply_text("Произошла ошибка при работе с базой данных.")
-        return ApplicationBuilder.END
+        return ConversationHandler.END
         
     except Exception as e:
-        logging.error(f"Ошибка в функции расчет: {e}", exc_info=True)  # Добавлен exc_info для детальной трассировки
+        logging.error(f"Ошибка в функции расчет: {e}", exc_info=True)
         await update.message.reply_text("Произошла ошибка при расчете итогов.")
-        return ApplicationBuilder.END
+        return ConversationHandler.END
         
     finally:
         if cur:

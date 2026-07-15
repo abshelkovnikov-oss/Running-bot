@@ -77,6 +77,7 @@ async def list_races(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
+        # Сортируем по дате, чтобы список был логичным
         cur.execute("SELECT city, race_name, race_date, distance FROM races ORDER BY race_date ASC")
         rows = cur.fetchall()
         cur.close()
@@ -86,14 +87,32 @@ async def list_races(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Забегов пока нет.")
             return
 
-        msg = "🏃 **Список забегов:**\n\n"
+        # Начинаем собирать сообщения
+        header = "🏃 **Список всех забегов:**\n\n"
+        messages = []
+        current_msg = header
+
         for r in rows:
             date_str = r[2].strftime('%d.%m.%Y')
-            msg += f"📍 {r[0]} — *{r[1]}*\n🗓 {date_str} | {r[3]} км\n\n"
+            race_info = f"📍 {r[0]} — *{r[1]}*\n🗓 {date_str} | {r[3]} км\n\n"
+            
+            # Если добавление нового забега превысит лимит 4000 символов (берем с запасом)
+            if len(current_msg) + len(race_info) > 4000:
+                messages.append(current_msg)
+                current_msg = race_info # Начинаем новое сообщение
+            else:
+                current_msg += race_info
         
-        await update.message.reply_text(msg, parse_mode="Markdown")
+        # Добавляем последний кусок текста
+        messages.append(current_msg)
+
+        # Отправляем все части по очереди
+        for msg in messages:
+            await update.message.reply_text(msg, parse_mode="Markdown")
+
     except Exception as e:
-        await update.message.reply_text(f"Ошибка при чтении: {e}")
+        logging.error(f"Ошибка при чтении: {e}")
+        await update.message.reply_text("Произошла ошибка при выводе списка.")
 
 async def add_race(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Проверка на админа

@@ -111,7 +111,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         text = "🏆 **Рейтинг участников по километрам:**\n\n"
-       for i, row in enumerate(rows, 1):
+        for i, row in enumerate(rows, 1):
             name = row[0] if row[0] else "Неизвестный"
             dist = int(row[1]) if row[1] is not None else 0
             

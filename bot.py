@@ -229,25 +229,31 @@ async def get_end_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
     
-        # 1. Получаем общую сумму пробега за выбранный период
+        # 1. Получаем общую сумму пробега ЗА ВСЁ ВРЕМЯ (для определения города)
+        cur.execute(
+            "SELECT COALESCE(SUM(distance), 0) FROM races"
+        )
+        total_all_time = cur.fetchone()[0]
+        if hasattr(total_all_time, '__float__'):
+            total_all_time = float(total_all_time)
+
+        # 2. Получаем сумму пробега ЗА ВЫБРАННЫЙ ПЕРИОД (для отчета)
         cur.execute(
             "SELECT COALESCE(SUM(distance), 0) FROM races WHERE race_date >= %s AND race_date <= %s",
             (start_dt, end_dt)
         )
-        total_dist = cur.fetchone()[0]
-        
-        # Если total_dist - Decimal, конвертируем в float
-        if hasattr(total_dist, '__float__'):
-            total_dist = float(total_dist)
+        total_period = cur.fetchone()[0]
+        if hasattr(total_period, '__float__'):
+            total_period = float(total_period)
 
-        # 2. Ищем ближайший город (первый город, чья дистанция больше нашего пробега)
+        # 3. Ищем ближайший город (исходя из общего пробега за всё время)
         cur.execute(
             "SELECT city_name, distance_from_start FROM city_distances WHERE distance_from_start > %s ORDER BY distance_from_start ASC LIMIT 1",
-            (total_dist,)
+            (total_all_time,)
         )
         next_city_data = cur.fetchone()
 
-        # 3. Получаем дистанцию до Москвы
+        # 4. Получаем дистанцию до Москвы
         cur.execute(
             "SELECT distance_from_start FROM city_distances WHERE city_name ILIKE 'москва' LIMIT 1"
         )
@@ -256,22 +262,22 @@ async def get_end_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Формируем сообщение
         response = f"Итоги периода с {start_dt.strftime('%d.%m.%Y')} по {end_dt.strftime('%d.%m.%Y')}:\n"
-        response += f"🏁 Всего пройдено: {total_dist:.2f} км\n\n"
+        response += f"🏁 Пройдено за период: {total_period:.2f} км\n"
+        response += f"📊 Всего пройдено за всё время: {total_all_time:.2f} км\n\n"
 
         if next_city_data:
             next_city_name, next_city_dist = next_city_data
-            # Конвертируем Decimal в float если нужно
             if hasattr(next_city_dist, '__float__'):
                 next_city_dist = float(next_city_dist)
-            left_to_city = next_city_dist - total_dist
+            left_to_city = next_city_dist - total_all_time
             response += f"📍 Следующий город: {next_city_name}\n"
             response += f"🛣️ До него осталось: {left_to_city:.2f} км\n"
         else:
             response += "🎉 Поздравляем! Вы достигли конечной точки!\n"
 
         if moscow_dist > 0:
-            if total_dist < moscow_dist:
-                left_to_moscow = moscow_dist - total_dist
+            if total_all_time < moscow_dist:
+                left_to_moscow = moscow_dist - total_all_time
                 response += f"🏛️ До Москвы осталось: {left_to_moscow:.2f} км"
             else:
                 response += "🇷🇺 Вы уже в Москве (или проехали её)!"

@@ -3,7 +3,7 @@ import pandas as pd
 import logging
 import psycopg2
 from datetime import datetime  # Добавьте эту строку
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, BotCommand
 from telegram.ext import (
     ApplicationBuilder, 
     CommandHandler, 
@@ -464,6 +464,44 @@ async def cancel_add_race(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     return ConversationHandler.END
 
+async def set_bot_commands(application):
+    """Устанавливает команды в меню бота"""
+    commands = [
+        BotCommand("start", "🚀 Запустить бота"),
+        BotCommand("add_race", "➕ Добавить новый забег"),
+        BotCommand("list", "📋 Список забегов"),
+        BotCommand("stats", "🏆 Моя статистика"),
+        BotCommand("total", "📊 Итоги за период"),
+    ]    
+    await application.bot.set_my_commands(commands)
+    logging.info("✅ Команды меню успешно установлены!")
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /start"""
+    user_name = update.effective_user.first_name    
+    welcome_text = (
+        f"👋 Привет, {user_name}!\n\n"
+        "Я бот для учета пробегов! 🏃\n\n"
+        "📌 Доступные команды:\n"
+        "/add_race - ➕ Добавить новый забег\n"
+        "/list - 📋 Список всех забегов\n"
+        "/stats - 🏆 Рейтинг участников\n"
+        "/total - 📊 Итоги за выбранный период\n\n"
+        "Выберите команду в меню или отправьте её в чат!"
+    )
+    await update.message.reply_text(welcome_text)
+
+async def update_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обновляет меню команд (только для админов)"""
+    user_id = update.effective_user.id
+    
+    if not is_admin(user_id):
+        await update.message.reply_text("⛔ Доступ запрещен!")
+        return
+    
+    await set_bot_commands(context.bot)
+    await update.message.reply_text("✅ Меню команд обновлено!")
+
 add_race_conv_handler = ConversationHandler(
     entry_points=[
         CommandHandler('add_race', start_add_race),  # или MessageHandler для кнопки
@@ -496,9 +534,20 @@ if __name__ == '__main__':
     # init_cities_db()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(total_conv)
     app.add_handler(CommandHandler("list", list_races))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(add_race_conv_handler)
-
+    app.add_handler(CommandHandler("delete_race", delete_race))
+    app.add_handler(CommandHandler("list_ids", list_race_ids))
+    app.add_handler(CommandHandler("update_menu", update_menu))   
+    
+    # Устанавливаем команды в меню при запуске
+    async def post_init(application):
+        await set_bot_commands(application)
+    
+    app.post_init = post_init
+    
+    logging.info("🚀 Бот запущен!")
     app.run_polling()

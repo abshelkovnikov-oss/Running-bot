@@ -272,6 +272,66 @@ def is_admin(user_id: int) -> bool:
     """Проверяет, является ли пользователь администратором"""
     return user_id in ADMIN_IDS
 
+async def delete_race(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Удаляет забег по ID (только для админов)"""
+    user_id = update.effective_user.id
+    
+    if not is_admin(user_id):
+        await update.message.reply_text("⛔ Доступ запрещен! Только администраторы могут удалять забеги.")
+        return
+    
+    if not context.args or len(context.args) == 0:
+        await update.message.reply_text(
+            "❌ Укажите ID забега для удаления.\n"
+            "Пример: /delete_race 784"
+        )
+        return
+    
+    try:
+        race_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ ID должен быть числом!")
+        return
+    
+    conn = None
+    cur = None
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        
+        cur.execute("SELECT id, participant_name, race_name, race_date FROM races WHERE id = %s", (race_id,))
+        race = cur.fetchone()
+        
+        if not race:
+            await update.message.reply_text(f"❌ Забег с ID {race_id} не найден.")
+            return
+        
+        race_info = (
+            f"📅 Дата: {race[3].strftime('%d.%m.%Y')}\n"
+            f"👤 Участник: {race[1]}\n"
+            f"🏃 Забег: {race[2]}"
+        )
+        
+        cur.execute("DELETE FROM races WHERE id = %s", (race_id,))
+        conn.commit()
+        
+        await update.message.reply_text(
+            f"✅ Забег с ID {race_id} успешно удален!\n\n"
+            f"Удаленная запись:\n{race_info}"
+        )
+        
+    except psycopg2.Error as e:
+        logging.error(f"Ошибка базы данных при удалении: {e}")
+        await update.message.reply_text(f"❌ Ошибка при удалении: {e}")
+    except Exception as e:
+        logging.error(f"Ошибка при удалении: {e}")
+        await update.message.reply_text(f"❌ Произошла ошибка: {e}")
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
 async def start_add_race(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начинаем процесс добавления забега с проверкой прав"""
     user_id = update.effective_user.id

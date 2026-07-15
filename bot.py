@@ -258,16 +258,16 @@ async def get_end_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if moscow_dist > 0 and total_dist < moscow_dist:
                     left_to_moscow = moscow_dist - total_dist
                     response += f"🏛️ До Москвы осталось: {left_to_moscow:.2f} км"
-                elif total_dist >= moscow_dist:
+        elif total_dist >= moscow_dist:
                     response += "🇷🇺 Вы уже в Москве (или проехали её)!"
         
-                await update.message.reply_text(response)
-                return ApplicationBuilder.END
+        await update.message.reply_text(response)
+        return ApplicationBuilder.END
         
-            except Exception as e:
-                logging.error(f"Ошибка в функции расчет: {e}")
-                await update.message.reply_text("Произошла ошибка при расчете итогов.")
-                return ApplicationBuilder.END
+    except Exception as e:
+        logging.error(f"Ошибка в функции расчет: {e}")
+        await update.message.reply_text("Произошла ошибка при расчете итогов.")
+        return ApplicationBuilder.END
 
 # --- СТАНДАРТНЫЙ ЗАПУСК ---
 if __name__ == '__main__':

@@ -14,16 +14,11 @@ from telegram.ext import (
     MessageHandler,
     filters,
     ContextTypes,
-    ConversationHandler,
 )
 
 # ================== НАСТРОЙКИ ==================
 TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 ADMIN_IDS = [int(id.strip()) for id in os.getenv("ADMIN_IDS", "123456789").split(",")]
-
-# Состояния для ConversationHandler
-ENTERING_INVITE = 1
-ENTERING_RUN_DATA = 2
 
 # ================== ЛОГИРОВАНИЕ ==================
 logging.basicConfig(
@@ -96,7 +91,7 @@ class DatabaseManager:
             )
             conn.commit()
             return True
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Ошибка добавления пользователя: {e}")
             return False
         finally:
@@ -110,7 +105,7 @@ class DatabaseManager:
             cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Ошибка получения пользователя: {e}")
             return None
         finally:
@@ -127,7 +122,7 @@ class DatabaseManager:
             )
             conn.commit()
             return True
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Ошибка обновления статуса: {e}")
             return False
         finally:
@@ -144,7 +139,7 @@ class DatabaseManager:
             )
             conn.commit()
             return True
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Ошибка добавления забега: {e}")
             return False
         finally:
@@ -161,7 +156,7 @@ class DatabaseManager:
             )
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Ошибка получения забегов: {e}")
             return []
         finally:
@@ -178,7 +173,7 @@ class DatabaseManager:
             )
             row = cursor.fetchone()
             return row['total'] if row else 0.0
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Ошибка подсчета километража: {e}")
             return 0.0
         finally:
@@ -194,7 +189,7 @@ class DatabaseManager:
             )
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Ошибка получения пользователей: {e}")
             return []
         finally:
@@ -220,14 +215,14 @@ class DatabaseManager:
             ''')
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Ошибка получения статистики: {e}")
             return []
         finally:
             conn.close()
 
     @staticmethod
-    def create_invite_code(admin_id: int) -> str:
+    def create_invite_code(admin_id: int) -> Optional[str]:
         code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -239,8 +234,9 @@ class DatabaseManager:
             conn.commit()
             return code
         except sqlite3.IntegrityError:
+            # Если код уже существует, генерируем новый
             return DatabaseManager.create_invite_code(admin_id)
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Ошибка создания кода: {e}")
             return None
         finally:
@@ -265,7 +261,7 @@ class DatabaseManager:
                 conn.commit()
                 return admin_id
             return None
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Ошибка использования кода: {e}")
             return None
         finally:
@@ -285,7 +281,7 @@ class DatabaseManager:
                 cursor.execute("SELECT * FROM invites ORDER BY created_at DESC")
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Ошибка получения кодов: {e}")
             return []
         finally:
@@ -304,7 +300,7 @@ class DatabaseManager:
             ''')
             row = cursor.fetchone()
             return row['total'] if row else 0.0
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Ошибка подсчета общего километража: {e}")
             return 0.0
         finally:
@@ -365,8 +361,8 @@ def get_rating_text() -> str:
     
     return text
 
-def get_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
-    """Создает клавиатуру меню в зависимости от прав пользователя"""
+def get_main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    """Главное меню"""
     keyboard = [
         [InlineKeyboardButton("📝 Добавить забег", callback_data="add_run")],
         [InlineKeyboardButton("📊 Моя статистика", callback_data="my_stats")],
@@ -383,8 +379,18 @@ def get_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
     
     return InlineKeyboardMarkup(keyboard)
 
-# ================== ОБРАБОТЧИКИ ==================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+def get_back_button() -> InlineKeyboardMarkup:
+    """Кнопка возврата в меню"""
+    keyboard = [[InlineKeyboardButton("🔙 Назад в меню", callback_data="back_to_menu")]]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_cancel_button() -> InlineKeyboardMarkup:
+    """Кнопка отмены"""
+    keyboard = [[InlineKeyboardButton("❌ Отмена", callback_data="cancel_action")]]
+    return InlineKeyboardMarkup(keyboard)
+
+# ================== ОБРАБОТЧИКИ КОМАНД ==================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик команды /start"""
     user_id = update.effective_user.id
     
@@ -395,7 +401,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             f"👋 Добро пожаловать, {existing_user['name']}!\n"
             "Используйте /menu для доступа к функциям."
         )
-        return ConversationHandler.END
+        return
     
     # Если админ — сразу регистрируем
     if is_admin(user_id):
@@ -407,72 +413,63 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             )
         else:
             await update.message.reply_text("❌ Ошибка регистрации. Попробуйте позже.")
-        return ConversationHandler.END
+        return
     
     # Обычный пользователь — запрашиваем код
     await update.message.reply_text(
         "🔐 Это закрытое корпоративное сообщество.\n"
-        "Введите код приглашения, полученный от администратора:\n\n"
-        "Или напишите /cancel для отмены."
+        "Введите код приглашения, полученный от администратора:"
     )
-    return ENTERING_INVITE
+    # Сохраняем состояние что ждем код
+    context.user_data['waiting_for_code'] = True
 
-async def enter_invite(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Обработчик ввода кода приглашения"""
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик всех текстовых сообщений"""
     user_id = update.effective_user.id
-    code = update.message.text.strip().upper()
+    text = update.message.text.strip()
     
-    admin_id = DatabaseManager.use_invite_code(code)
-    if admin_id:
-        name = update.effective_user.full_name
-        if DatabaseManager.add_user(user_id, name, admin_id):
-            await update.message.reply_text(
-                f"✅ Добро пожаловать, {name}!\n"
-                "Теперь вы можете фиксировать свои забеги.\n"
-                "Используйте /menu для доступа."
-            )
-            return ConversationHandler.END
+    # Проверяем, ждем ли мы код приглашения
+    if context.user_data.get('waiting_for_code'):
+        # Пытаемся использовать код
+        admin_id = DatabaseManager.use_invite_code(text.upper())
+        if admin_id:
+            name = update.effective_user.full_name
+            if DatabaseManager.add_user(user_id, name, admin_id):
+                await update.message.reply_text(
+                    f"✅ Добро пожаловать, {name}!\n"
+                    "Теперь вы можете фиксировать свои забеги.\n"
+                    "Используйте /menu для доступа."
+                )
+                context.user_data['waiting_for_code'] = False
+                return
+            else:
+                await update.message.reply_text("❌ Ошибка регистрации. Попробуйте позже.")
+                return
         else:
-            await update.message.reply_text("❌ Ошибка регистрации. Попробуйте позже.")
-            return ConversationHandler.END
-    else:
-        await update.message.reply_text(
-            "❌ Неверный или уже использованный код приглашения.\n"
-            "Пожалуйста, проверьте код и попробуйте снова.\n"
-            "Или напишите /cancel для выхода."
-        )
-        return ENTERING_INVITE
-
-async def add_run_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Начинает процесс добавления забега"""
-    user_id = update.effective_user.id
+            await update.message.reply_text(
+                "❌ Неверный код приглашения.\n"
+                "Пожалуйста, проверьте код и попробуйте снова.\n"
+                "Или напишите /cancel для отмены."
+            )
+            return
     
-    # Проверяем регистрацию
-    user = DatabaseManager.get_user(user_id)
-    if not user or user['is_active'] != 1:
-        await update.message.reply_text("❌ Вы не зарегистрированы. Используйте /start")
-        return ConversationHandler.END
+    # Проверяем, ждем ли мы данные забега
+    if context.user_data.get('waiting_for_run'):
+        await process_run_data(update, context)
+        return
     
+    # Если ничего не ждем, отправляем в меню
     await update.message.reply_text(
-        "📝 Введите данные забега в формате:\n"
-        "Город, Название забега, Дата (ГГГГ-ММ-ДД), Километраж\n\n"
-        "Пример: Москва, Марафон, 2026-07-14, 42.2\n\n"
-        "Или напишите /cancel для отмены."
+        "Используйте /menu для доступа к функциям бота."
     )
-    return ENTERING_RUN_DATA
 
-async def add_run_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Обработчик ввода данных забега"""
+async def process_run_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработка введенных данных забега"""
     user_id = update.effective_user.id
-    
-    # Проверяем регистрацию
-    user = DatabaseManager.get_user(user_id)
-    if not user or user['is_active'] != 1:
-        await update.message.reply_text("❌ Вы не зарегистрированы. Используйте /start")
-        return ConversationHandler.END
+    text = update.message.text.strip()
     
     try:
-        parts = [p.strip() for p in update.message.text.split(",")]
+        parts = [p.strip() for p in text.split(",")]
         if len(parts) != 4:
             raise ValueError("Неверный формат")
         
@@ -500,10 +497,9 @@ async def add_run_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                 f"📊 Ваш общий километраж: {total_km:.1f} км\n\n"
                 f"Используйте /menu для продолжения."
             )
+            context.user_data['waiting_for_run'] = False
         else:
             await update.message.reply_text("❌ Ошибка сохранения забега. Попробуйте позже.")
-        
-        return ConversationHandler.END
         
     except ValueError as e:
         await update.message.reply_text(
@@ -511,14 +507,8 @@ async def add_run_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             "📝 Правильный формат:\n"
             "Город, Название, ГГГГ-ММ-ДД, Километраж\n\n"
             "Пример: Москва, Марафон, 2026-07-14, 42.2\n\n"
-            "Попробуйте снова или /cancel"
+            "Используйте /cancel для отмены"
         )
-        return ENTERING_RUN_DATA
-
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Отмена текущего действия"""
-    await update.message.reply_text("❌ Операция отменена.")
-    return ConversationHandler.END
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Показывает главное меню"""
@@ -532,12 +522,19 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
     
-    keyboard = get_menu_keyboard(user_id)
+    keyboard = get_main_menu_keyboard(user_id)
     await update.message.reply_text(
         f"🏃 Главное меню, {user['name']}!",
         reply_markup=keyboard,
     )
 
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Отмена текущего действия"""
+    context.user_data['waiting_for_code'] = False
+    context.user_data['waiting_for_run'] = False
+    await update.message.reply_text("❌ Операция отменена. Используйте /menu для доступа.")
+
+# ================== ОБРАБОТЧИК КНОПОК ==================
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик нажатий на кнопки"""
     query = update.callback_query
@@ -552,35 +549,75 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.edit_message_text("❌ Вы не зарегистрированы. Используйте /start")
         return
     
-    # Обработка различных кнопок
+    # ===== ОБРАБОТКА КНОПОК =====
+    
+    # Кнопка "Назад в меню"
+    if data == "back_to_menu":
+        keyboard = get_main_menu_keyboard(user_id)
+        await query.edit_message_text(
+            f"🏃 Главное меню, {user['name']}!",
+            reply_markup=keyboard
+        )
+        return
+    
+    # Кнопка "Отмена"
+    if data == "cancel_action":
+        context.user_data['waiting_for_run'] = False
+        keyboard = get_main_menu_keyboard(user_id)
+        await query.edit_message_text(
+            "❌ Действие отменено",
+            reply_markup=keyboard
+        )
+        return
+    
+    # Кнопка "Моя статистика"
     if data == "my_stats":
         text = get_stats_text(user_id)
         await query.edit_message_text(text, reply_markup=get_back_button())
+        return
     
-    elif data == "rating":
+    # Кнопка "Рейтинг всех"
+    if data == "rating":
         text = get_rating_text()
         await query.edit_message_text(text, reply_markup=get_back_button())
+        return
     
-    elif data == "total_km":
+    # Кнопка "Общий километраж"
+    if data == "total_km":
         total = DatabaseManager.get_total_all_km()
         await query.edit_message_text(
             f"📏 Общий километраж сообщества: {total:.1f} км",
             reply_markup=get_back_button()
         )
+        return
     
-    elif data == "gen_invite" and is_admin(user_id):
+    # Кнопка "Сгенерировать код" - ДЛЯ АДМИНОВ
+    if data == "gen_invite":
+        if not is_admin(user_id):
+            await query.edit_message_text("⛔ Только для администраторов.")
+            return
+        
         code = DatabaseManager.create_invite_code(user_id)
         if code:
             await query.edit_message_text(
-                f"🔑 Новый код приглашения:\n`{code}`\n\n"
+                f"🔑 Новый код приглашения:\n\n`{code}`\n\n"
                 "Отправьте этот код новому участнику.\n"
                 "Код действителен для одного использования.",
                 reply_markup=get_back_button()
             )
         else:
-            await query.edit_message_text("❌ Ошибка генерации кода.")
+            await query.edit_message_text(
+                "❌ Ошибка генерации кода.",
+                reply_markup=get_back_button()
+            )
+        return
     
-    elif data == "my_invites" and is_admin(user_id):
+    # Кнопка "Мои коды" - ДЛЯ АДМИНОВ
+    if data == "my_invites":
+        if not is_admin(user_id):
+            await query.edit_message_text("⛔ Только для администраторов.")
+            return
+        
         codes = DatabaseManager.get_invite_codes(user_id)
         if not codes:
             await query.edit_message_text(
@@ -599,8 +636,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             text += f"\n... и еще {len(codes) - 10} кодов"
         
         await query.edit_message_text(text, reply_markup=get_back_button())
+        return
     
-    elif data == "list_users" and is_admin(user_id):
+    # Кнопка "Список участников" - ДЛЯ АДМИНОВ
+    if data == "list_users":
+        if not is_admin(user_id):
+            await query.edit_message_text("⛔ Только для администраторов.")
+            return
+        
         users_list = DatabaseManager.get_all_active_users()
         if not users_list:
             await query.edit_message_text(
@@ -617,30 +660,22 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             text += f"  🏃 {runs_count} забегов, 📏 {total_km:.1f} км\n"
         
         await query.edit_message_text(text[:4000], reply_markup=get_back_button())
+        return
     
-    elif data == "back_to_menu":
-        keyboard = get_menu_keyboard(user_id)
+    # Кнопка "Добавить забег"
+    if data == "add_run":
+        context.user_data['waiting_for_run'] = True
         await query.edit_message_text(
-            f"🏃 Главное меню, {user['name']}!",
-            reply_markup=keyboard
+            "📝 Введите данные забега в формате:\n"
+            "Город, Название забега, Дата (ГГГГ-ММ-ДД), Километраж\n\n"
+            "Пример: Москва, Марафон, 2026-07-14, 42.2\n\n"
+            "Нажмите 'Отмена' для отмены.",
+            reply_markup=get_cancel_button()
         )
+        return
     
-    elif data == "add_run":
-        # Запускаем ConversationHandler для добавления забега
-        # Для этого нужно вызвать команду /add_run или использовать отдельный обработчик
-        await query.edit_message_text(
-            "📝 Используйте команду /add_run для добавления забега\n\n"
-            "Или нажмите кнопку 'Назад' для возврата в меню.",
-            reply_markup=get_back_button()
-        )
-    
-    else:
-        await query.edit_message_text("❌ Неизвестная команда.")
-
-def get_back_button() -> InlineKeyboardMarkup:
-    """Создает кнопку 'Назад'"""
-    keyboard = [[InlineKeyboardButton("🔙 Назад в меню", callback_data="back_to_menu")]]
-    return InlineKeyboardMarkup(keyboard)
+    # Если ничего не подошло
+    await query.edit_message_text("❌ Неизвестная команда.")
 
 # ================== АДМИН-КОМАНДЫ ==================
 async def admin_add_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -772,50 +807,24 @@ def main() -> None:
     # Создание приложения
     app = Application.builder().token(TOKEN).build()
     
-    # ===== ConversationHandler для регистрации =====
-    reg_conv = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={
-            ENTERING_INVITE: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_invite)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-        name="registration_conversation",
-        persistent=False,
-    )
-    app.add_handler(reg_conv)
+    # ===== ОБРАБОТЧИКИ =====
     
-    # ===== ConversationHandler для добавления забега =====
-    run_conv = ConversationHandler(
-        entry_points=[CommandHandler("add_run", add_run_start)],
-        states={
-            ENTERING_RUN_DATA: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_run_data)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-        name="add_run_conversation",
-        persistent=False,
-    )
-    app.add_handler(run_conv)
-    
-    # ===== Обработчик кнопок =====
-    app.add_handler(CallbackQueryHandler(button_callback))
-    
-    # ===== Команды =====
+    # 1. Сначала команды
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("menu", menu))
+    app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(CommandHandler("add_user", admin_add_user))
     app.add_handler(CommandHandler("remove_user", admin_remove_user))
     app.add_handler(CommandHandler("activate_user", admin_activate_user))
     app.add_handler(CommandHandler("stats", admin_stats))
     
-    # ===== Обработчик неизвестных команд =====
-    async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        await update.message.reply_text(
-            "❓ Неизвестная команда.\n"
-            "Используйте /menu для доступа к функциям."
-        )
+    # 2. Потом обработчик кнопок
+    app.add_handler(CallbackQueryHandler(button_callback))
     
-    app.add_handler(MessageHandler(filters.COMMAND, unknown_command))
+    # 3. В конце обработчик текстовых сообщений
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     
-    logger.info("Бот запущен с базой данных SQLite...")
+    logger.info("✅ Бот запущен с базой данных SQLite...")
     app.run_polling()
 
 if __name__ == "__main__":

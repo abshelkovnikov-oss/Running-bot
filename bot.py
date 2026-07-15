@@ -135,9 +135,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 if __name__ == '__main__':
+    # 1. Инициализируем базу данных
     init_db()
-    app = ApplicationBuilder.builder().token(BOT_TOKEN).build()
+
+    # 2. Исправленный запуск бота (убрали .builder())
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    # 3. Регистрация обработчиков
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("list", list_races))
     app.add_handler(CommandHandler("add", add_race))
+
+    logging.info("Бот успешно запущен на railway!")
+    
+    # 4. Запуск бесконечного цикла
     app.run_polling()

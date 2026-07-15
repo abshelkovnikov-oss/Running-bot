@@ -1,4 +1,5 @@
 import os
+import pandas as pd
 import logging
 import psycopg2
 from datetime import datetime  # Добавьте эту строку
@@ -21,6 +22,39 @@ logging.basicConfig(
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 ADMIN_IDS = [int(id.strip()) for id in os.getenv("ADMIN_IDS", "0").split(",")]
+
+CITIES_EXCEL = "cities.xlsx"
+
+# --- ИНИЦИАЛИЗАЦИЯ ТАБЛИЦЫ ГОРОДОВ ---
+def init_cities_db():
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS city_distances (
+                id SERIAL PRIMARY KEY,
+                city_name TEXT,
+                distance_from_start FLOAT
+            );
+        """)
+        
+        # Проверяем, пуста ли таблица, чтобы не дублировать данные
+        cur.execute("SELECT COUNT(*) FROM city_distances")
+        if cur.fetchone() == 0 and os.path.exists(CITIES_EXCEL):
+            df = pd.read_excel(CITIES_EXCEL)
+            for _, row in df.iterrows():
+                cur.execute(
+                    "INSERT INTO city_distances (city_name, distance_from_start) VALUES (%s, %s)",
+                    (row['Город'], row['Расстояние'])
+                )
+            conn.commit()
+            logging.info("Таблица городов успешно загружена.")
+        
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logging.error(f"Ошибка при инициализации таблицы городов: {e}")
+
 
 # --- КОМАНДА /list С ФИЛЬТРОМ ПО МЕСЯЦУ ---
 async def list_races(update: Update, context: ContextTypes.DEFAULT_TYPE):

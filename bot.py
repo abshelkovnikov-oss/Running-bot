@@ -1,10 +1,16 @@
 import os
 import logging
-import pandas as pd
 import psycopg2
+from datetime import datetime  # Добавьте эту строку
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-from telegram.ext import ConversationHandler, MessageHandler, filters
+from telegram.ext import (
+    ApplicationBuilder, 
+    CommandHandler, 
+    MessageHandler, 
+    filters, 
+    ConversationHandler, 
+    ContextTypes
+)
 
 # Настройка логирования
 logging.basicConfig(

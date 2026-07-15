@@ -272,6 +272,7 @@ async def get_end_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- СТАНДАРТНЫЙ ЗАПУСК ---
 if __name__ == '__main__':
     # init_db() — функция должна быть определена выше (как в прошлых ответах)
+    init_cities_db()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     total_conv = ConversationHandler(

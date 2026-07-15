@@ -181,15 +181,6 @@ async def get_end_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cur = conn.cursor()
 
         # 1. Считаем сумму за период
-        cur.execute(
-            "SELECT SUM(distance) FROM races WHERE race_date >= %s AND race_date <= %s",
-            (start_dt, end_dt)
-        )
-        period_sum = cur.fetchone()[0] or 0
-
-        # 2. Считаем общую сумму всего
-        cur.execute("SELECT SUM(distance) FROM races")
-        total_sum = cur.fetchone()[0] or 0
 
         cur.close()
         conn.close()
@@ -214,6 +205,57 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Расчет отменен.")
     return ConversationHandler.END
 
+async def get_end_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        # Парсим дату, которую ввел пользователь
+        date_text = update.message.text
+        end_dt = datetime.strptime(date_text, '%d.%m.%Y').date()
+        start_dt = context.user_data.get('start_period')
+
+        if not start_dt:
+            await update.message.reply_text("Ошибка: не задана дата начала периода.")
+            return ApplicationBuilder.END
+
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+    
+        # 1. Получаем общую сумму пробега за выбранный период
+        cur.execute(
+            "SELECT SUM(distance) FROM races WHERE race_date &gt;= %s AND race_date &lt;= %s",
+            (start_dt, end_dt)
+        )
+        total_dist = cur.fetchone() or 0.0
+
+        # 2. Ищем ближайший город (первый город, чья дистанция больше нашего пробега)
+        cur.execute(
+            "SELECT city_name, distance_from_start FROM city_distances WHERE distance_from_start &gt; %s ORDER BY distance_from_start ASC LIMIT 1",
+            (total_dist,)
+        )
+        next_city_data = cur.fetchone()
+
+        # 3. Получаем дистанцию до Москвы (последняя точка)
+        cur.execute(
+            "SELECT distance_from_start FROM city_distances WHERE city_name = 'Москва' OR city_name = 'москва' LIMIT 1"
+        )
+        moscow_data = cur.fetchone()
+        moscow_dist = moscow_data if moscow_data else 0
+
+        cur.close()
+        conn.close()
+
+        # Формируем сообщение
+        response = f"Итоги периода с {start_dt.strftime('%d.%m.%Y')} по {end_dt.strftime('%d.%m.%Y')}:\n"
+        response += f"🏁 Всего пройдено: {total_dist:.2f} км\n\n"
+
+        if next_city_data:
+            next_city_name, next_city_dist = next_city_data
+            left_to_city = next_city_dist - total_dist
+            response += f"📍 Следующий город: {next_city_name}\n"
+            response += f"🛣️ До него осталось: {left_to_city:.2f} км\n"
+        else:
+            response += "🎉 Поздравляем! Вы достигли конечной точки!\n"
+
+        if moscow_dist &gt; 0 and total_dist 
 
 # --- СТАНДАРТНЫЙ ЗАПУСК ---
 if __name__ == '__main__':

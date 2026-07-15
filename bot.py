@@ -24,23 +24,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 ADMIN_IDS = [int(id.strip()) for id in os.getenv("ADMIN_IDS", "0").split(",")]
 
 DATE, NAME, CITY, RACE_NAME, DISTANCE = range(5)
-
-add_race_conv_handler = ConversationHandler(
-    entry_points=[
-        CommandHandler('add_race', start_add_race),  # или MessageHandler для кнопки
-    ],
-    states={
-        DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_race_date)],
-        NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_race_name)],
-        CITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_race_city)],
-        RACE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_race_name_event)],
-        DISTANCE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_race_distance)],
-    },
-    fallbacks=[
-        CommandHandler('cancel', cancel_add_race),
-    ],
-    allow_reentry=True,
-)
+START_DATE, END_DATE = range(2)
 
 # --- КОМАНДА /list С ФИЛЬТРОМ ПО МЕСЯЦУ ---
 async def list_races(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -136,7 +120,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(e)
         await update.message.reply_text("Ошибка при расчете статистики.")
-START_DATE, END_DATE = range(2)
+
 
 # --- НАЧАЛО ДИАЛОГА /total ---
 async def total_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -467,7 +451,31 @@ async def cancel_add_race(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     return ConversationHandler.END
 
+add_race_conv_handler = ConversationHandler(
+    entry_points=[
+        CommandHandler('add_race', start_add_race),  # или MessageHandler для кнопки
+    ],
+    states={
+        DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_race_date)],
+        NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_race_name)],
+        CITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_race_city)],
+        RACE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_race_name_event)],
+        DISTANCE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_race_distance)],
+    },
+    fallbacks=[
+        CommandHandler('cancel', cancel_add_race),
+    ],
+    allow_reentry=True,
+)
 
+total_conv = ConversationHandler(
+       entry_points=[CommandHandler('total', total_start)],
+       states={
+           START_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_start_date)],
+           END_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_end_date)],
+       },
+       fallbacks=[CommandHandler('cancel', cancel)],
+)
 
 # --- СТАНДАРТНЫЙ ЗАПУСК ---
 if __name__ == '__main__':
@@ -475,19 +483,9 @@ if __name__ == '__main__':
     # init_cities_db()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    total_conv = ConversationHandler(
-        entry_points=[CommandHandler('total', total_start)],
-        states={
-            START_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_start_date)],
-            END_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_end_date)],
-        },
-        fallbacks=[CommandHandler('cancel', cancel)],
-    )
-
     app.add_handler(total_conv)
     app.add_handler(CommandHandler("list", list_races))
     app.add_handler(CommandHandler("stats", stats))
-    application.add_handler(add_race_conv_handler)
-    # Добавь сюда остальные хендлеры (start, add_race)
+    app.add_handler(add_race_conv_handler)
 
     app.run_polling()

@@ -595,13 +595,12 @@ if __name__ == '__main__':
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(total_conv)
     app.add_handler(CommandHandler("list", list_races))
     app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(add_race_conv_handler)
     app.add_handler(CommandHandler("delete_race", delete_race))
-    app.add_handler(CommandHandler("list_ids", list_race_ids))
-    app.add_handler(CommandHandler("update_menu", update_menu))   
+    app.add_handler(CommandHandler("update_menu", update_menu))  
+    app.add_handler(add_race_conv_handler)
+    app.add_handler(total_conv) 
     
     # Устанавливаем команды в меню при запуске
     async def post_init(application):

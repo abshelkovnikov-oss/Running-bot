@@ -311,18 +311,18 @@ async def add_race_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def add_race_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Получаем ФИО участника"""
-    participal_name = update.message.text.strip()
-    if len(participal_name) < 2:
+    participant_name = update.message.text.strip()
+    if len(participant_name) < 2:
         await update.message.reply_text(
             "❌ Имя слишком короткое!\n"
             "Пожалуйста, введите полное ФИО:"
         )
         return NAME
     
-    context.user_data['participal_name'] = participal_name
+    context.user_data['full_name'] = participant_name  # Сохраняем как full_name, но в БД будет participant_name
     
     await update.message.reply_text(
-        f"✅ ФИО сохранено: {participal_name}\n"
+        f"✅ ФИО сохранено: {participant_name}\n"
         "Теперь введите город, где проходил забег:"
     )
     return CITY
@@ -381,18 +381,29 @@ async def add_race_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Получаем все данные из context
         race_date = context.user_data.get('race_date')
-        participal_name = context.user_data.get('participal_name')
+        participant_name = context.user_data.get('full_name')  # В context хранится как full_name
         city = context.user_data.get('city')
         race_name = context.user_data.get('race_name')
+        
+        # Проверяем, что все данные есть
+        if not all([race_date, participant_name, city, race_name]):
+            logging.error(f"Отсутствуют данные: race_date={race_date}, participant_name={participant_name}, city={city}, race_name={race_name}")
+            await update.message.reply_text(
+                "❌ Ошибка: не все данные заполнены.\n"
+                "Пожалуйста, начните добавление забега заново командой /add_race"
+            )
+            context.user_data.clear()
+            return ConversationHandler.END
         
         # Сохраняем в базу данных
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
         
+        # Используем participant_name вместо full_name
         cur.execute(
-            """INSERT INTO races (race_date, participal_name, city, race_name, distance) 
+            """INSERT INTO races (race_date, participant_name, city, race_name, distance) 
                VALUES (%s, %s, %s, %s, %s)""",
-            (race_date, participal_name, city, race_name, distance)
+            (race_date, participant_name, city, race_name, distance)
         )
         conn.commit()
         
@@ -400,7 +411,7 @@ async def add_race_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = (
             "✅ Забег успешно добавлен!\n\n"
             f"📅 Дата: {race_date.strftime('%d.%m.%Y')}\n"
-            f"👤 Участник: {participal_name}\n"
+            f"👤 Участник: {participant_name}\n"
             f"📍 Город: {city}\n"
             f"🏃 Забег: {race_name}\n"
             f"📏 Дистанция: {distance:.2f} км"
@@ -413,7 +424,8 @@ async def add_race_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         return ConversationHandler.END
         
-    except ValueError:
+    except ValueError as e:
+        logging.error(f"Ошибка парсинга дистанции: {e}")
         await update.message.reply_text(
             "❌ Неверный формат дистанции!\n"
             "Пожалуйста, введите число (например, 42.2 или 21,1):"
@@ -423,7 +435,8 @@ async def add_race_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except psycopg2.Error as e:
         logging.error(f"Ошибка базы данных при добавлении забега: {e}")
         await update.message.reply_text(
-            "❌ Произошла ошибка при сохранении в базу данных.\n"
+            f"❌ Произошла ошибка при сохранении в базу данных.\n"
+            f"Ошибка: {str(e)[:100]}\n"
             "Пожалуйста, попробуйте позже."
         )
         return ConversationHandler.END
@@ -431,7 +444,7 @@ async def add_race_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(f"Ошибка при добавлении забега: {e}", exc_info=True)
         await update.message.reply_text(
-            "❌ Произошла непредвиденная ошибка.\n"
+            f"❌ Произошла непредвиденная ошибка:\n{str(e)[:100]}\n"
             "Пожалуйста, попробуйте позже."
         )
         return ConversationHandler.END

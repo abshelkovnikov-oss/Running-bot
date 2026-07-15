@@ -216,11 +216,13 @@ async def total_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def calendar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик нажатий на календарь"""
     query = update.callback_query
-    await query.answer()
+    await query.answer()  # Важно: отвечаем на callback, чтобы кнопка не висела
     
     data = query.data
     parts = data.split('_')
-    prefix = parts[0]
+    prefix = parts[0]  # 'start' или 'end'
+    
+    logging.info(f"📅 Получен callback: {data}")
     
     # Обработка отмены
     if data.endswith('_cancel'):
@@ -245,12 +247,13 @@ async def calendar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=keyboard,
             parse_mode="Markdown"
         )
-        return
+        return START_DATE if prefix == 'start' else END_DATE
     
     # Обработка выбора дня
     if len(parts) == 4 and parts[1].isdigit() and parts[2].isdigit() and parts[3].isdigit():
         return await process_date_selection(update, context, data)
     
+    # Если ничего не подошло
     await query.edit_message_text("❌ Неизвестная команда. Попробуйте еще раз.")
     return ConversationHandler.END
 
@@ -265,6 +268,8 @@ async def process_date_selection(update: Update, context: ContextTypes.DEFAULT_T
     
     selected_date = datetime(year, month, day).date()
     date_str = selected_date.strftime('%d.%m.%Y')
+    
+    logging.info(f"✅ Выбрана дата: {date_str} ({prefix})")
     
     if prefix == 'start':
         context.user_data['start_period'] = selected_date
@@ -312,7 +317,9 @@ async def process_date_selection(update: Update, context: ContextTypes.DEFAULT_T
             parse_mode="Markdown"
         )
         
-        return await calculate_total(update, context)
+        # Вызываем функцию расчета
+        result = await calculate_total(update, context)
+        return result
 
 async def calculate_total(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Расчет итогов за период"""
@@ -402,7 +409,7 @@ async def calculate_total(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if conn:
             conn.close()
 
-# ==================== СТАРЫЕ ФУНКЦИИ ДЛЯ ТЕКСТОВОГО ВВОДА (для совместимости) ====================
+# ==================== СТАРЫЕ ФУНКЦИИ ДЛЯ ТЕКСТОВОГО ВВОДА ====================
 async def get_start_date_old(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         date_text = update.message.text
@@ -415,7 +422,6 @@ async def get_start_date_old(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"или используйте календарь, который появится выше."
         )
         
-        # Показываем календарь для выбора даты окончания
         now = datetime.now()
         keyboard = CalendarButtons.create_calendar(now.year, now.month, "end")
         await update.message.reply_text(
@@ -736,7 +742,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("delete_race", delete_race))
     app.add_handler(add_race_conv_handler)
     app.add_handler(total_conv)
-    app.add_handler(CallbackQueryHandler(calendar_callback, pattern="^(start|end)_"))
+    # НЕ ДОБАВЛЯЙТЕ отдельный CallbackQueryHandler - он уже есть в ConversationHandler!
     
     async def post_init(application):
         await set_bot_commands(application)

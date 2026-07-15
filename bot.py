@@ -311,18 +311,18 @@ async def add_race_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def add_race_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Получаем ФИО участника"""
-    full_name = update.message.text.strip()
-    if len(full_name) < 2:
+    participal_name = update.message.text.strip()
+    if len(participal_name) < 2:
         await update.message.reply_text(
             "❌ Имя слишком короткое!\n"
             "Пожалуйста, введите полное ФИО:"
         )
         return NAME
     
-    context.user_data['full_name'] = full_name
+    context.user_data['participal_name'] = participal_name
     
     await update.message.reply_text(
-        f"✅ ФИО сохранено: {full_name}\n"
+        f"✅ ФИО сохранено: {participal_name}\n"
         "Теперь введите город, где проходил забег:"
     )
     return CITY
@@ -381,7 +381,7 @@ async def add_race_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Получаем все данные из context
         race_date = context.user_data.get('race_date')
-        full_name = context.user_data.get('full_name')
+        participal_name = context.user_data.get('participal_name')
         city = context.user_data.get('city')
         race_name = context.user_data.get('race_name')
         
@@ -390,9 +390,9 @@ async def add_race_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cur = conn.cursor()
         
         cur.execute(
-            """INSERT INTO races (race_date, full_name, city, race_name, distance) 
+            """INSERT INTO races (race_date, participal_name, city, race_name, distance) 
                VALUES (%s, %s, %s, %s, %s)""",
-            (race_date, full_name, city, race_name, distance)
+            (race_date, participal_name, city, race_name, distance)
         )
         conn.commit()
         
@@ -400,7 +400,7 @@ async def add_race_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = (
             "✅ Забег успешно добавлен!\n\n"
             f"📅 Дата: {race_date.strftime('%d.%m.%Y')}\n"
-            f"👤 Участник: {full_name}\n"
+            f"👤 Участник: {participal_name}\n"
             f"📍 Город: {city}\n"
             f"🏃 Забег: {race_name}\n"
             f"📏 Дистанция: {distance:.2f} км"

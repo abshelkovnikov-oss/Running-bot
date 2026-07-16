@@ -54,9 +54,6 @@ async def test_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
     logging.info("✅ Callback обработан")
     return ConversationHandler.END
     
-async def test_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print("🔥 CALLBACK СРАБОТАЛ")
-    
 async def test_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Отмена теста"""
     await update.message.reply_text("❌ Тест отменен.")

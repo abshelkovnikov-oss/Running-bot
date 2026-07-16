@@ -55,7 +55,7 @@ async def debug_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------- ЗАПУСК ----------------
 
 def main():
-    TOKEN = "ВСТАВЬ_СВОЙ_ТОКЕН_СЮДА"
+    TOKEN = "8275876827:AAFGs3PHnDCchrUtvLZCr68Ag_KP-m4coUc"
 
     app = ApplicationBuilder().token(TOKEN).build()
 

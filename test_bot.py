@@ -60,13 +60,18 @@ def main():
 
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # ВАЖНО: debug ставим первым
-    app.add_handler(MessageHandler(filters.ALL, debug_all), group=-1)
-    app.add_handler(CallbackQueryHandler(debug_all), group=-1)
+    TOKEN = "8275876827:AAFGs3PHnDCchrUtvLZCr68Ag_KP-m4coUc"
 
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    # СНАЧАЛА основные обработчики
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("test", test_command))
     app.add_handler(CallbackQueryHandler(button_handler))
+
+    # ПОТОМ debug (в отдельной группе)
+    app.add_handler(MessageHandler(filters.ALL, debug_all), group=1)
+    app.add_handler(CallbackQueryHandler(debug_all), group=1)
 
     print("✅ Бот запущен...")
     app.run_polling()

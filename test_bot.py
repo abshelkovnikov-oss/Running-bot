@@ -44,15 +44,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text=f"✅ Нажата кнопка: {query.data}"
     )
 
-
-# ---------------- DEBUG ВСЕГО ----------------
-
-async def debug_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print("\n🔥 ===== ПРИШЛО ОБНОВЛЕНИЕ =====")
-    print(update)
-    print("================================\n")
-
-
 # ---------------- ЗАПУСК ----------------
 
 def main():
@@ -69,13 +60,12 @@ def main():
     app.add_handler(CommandHandler("test", test_command))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    # ПОТОМ debug (в отдельной группе)
-    app.add_handler(MessageHandler(filters.ALL, debug_all), group=1)
-    app.add_handler(CallbackQueryHandler(debug_all), group=1)
-
+    print(f"🔍 Количество обработчиков: {len(app.handlers[0])}")
+    for i, handler in enumerate(app.handlers[0]):
+        print(f"  {i}: {type(handler).__name__}")
+    
     print("✅ Бот запущен...")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()

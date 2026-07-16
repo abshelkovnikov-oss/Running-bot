@@ -18,6 +18,7 @@ logging.basicConfig(
 # ---------------- КОМАНДЫ ----------------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("✅ START ВЫЗВАН")
     keyboard = [
         [InlineKeyboardButton("Нажми меня", callback_data="test_button")]
     ]

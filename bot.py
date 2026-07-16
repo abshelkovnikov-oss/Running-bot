@@ -1,3 +1,4 @@
+import pandas as pd
 import os
 import logging
 import psycopg2
@@ -88,6 +89,42 @@ class CalendarButtons:
         ])
         
         return InlineKeyboardMarkup(keyboard)
+
+async def reload_races_from_excel():
+    try:
+        # 1. Читаем Excel
+        df = pd.read_excel("data.xlsx")
+
+        # 2. Приводим дату к формату DATE
+        df["Дата"] = pd.to_datetime(df["Дата"]).dt.date
+
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+
+        # 3. Полностью очищаем таблицу
+        cur.execute("TRUNCATE TABLE races RESTART IDENTITY;")
+
+        # 4. Вставляем данные
+        for _, row in df.iterrows():
+            cur.execute("""
+                INSERT INTO races (city, race_name, race_date, distance, participant_name)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (
+                row["Город"],
+                row["Название"],
+                row["Дата"],
+                float(row["Дистанция"]),
+                row["ФИО"]
+            ))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        print("✅ Таблица races успешно обновлена!")
+
+    except Exception as e:
+        print(f"❌ Ошибка при загрузке: {e}")
 
 # ==================== КОМАНДА /list ====================
 async def list_races(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -760,6 +797,7 @@ if __name__ == '__main__':
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("reload", reload_races_from_excel))
     app.add_handler(CommandHandler("list", list_races))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("delete_race", delete_race))

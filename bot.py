@@ -90,7 +90,7 @@ class CalendarButtons:
         
         return InlineKeyboardMarkup(keyboard)
 
-async def reload_races_from_excel():
+async def reload_races_from_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         # 1. Читаем Excel
         df = pd.read_excel("data.xlsx")

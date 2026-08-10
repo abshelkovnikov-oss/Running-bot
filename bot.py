@@ -211,7 +211,7 @@ def format_clubs_message(clubs, title="📊 *Статистика по клуб�
     
     return "\n".join(lines)
 
-async def clubs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def clubs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Показываем оба типа
         clubs_dist = get_clubs_stats_by_distance()
@@ -234,10 +234,7 @@ async def clubs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
         
         await query.message.reply_text(message, parse_mode='Markdown')
-        
-    except Exception as e:
-        await query.message.reply_text(f"❌ Ошибка: {str(e)}")
-        
+                
 # ==================== КОМАНДА /list ====================
 async def list_races(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = "SELECT city, race_name, race_date, distance, participant_name FROM races"

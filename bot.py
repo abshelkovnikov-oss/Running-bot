@@ -210,7 +210,6 @@ def format_clubs_message(clubs, title="📊 *Статистика по клуб�
         avg = round(total / len(members))
         
         lines.append(f"🏆 *Клуб {club} {unit}* (участников: {len(members)})")
-        lines.append(f"   📈 Всего: {total} {unit} | Средний: {avg} {unit}")
         
         for name, value in members:
             lines.append(f"   • {name} — {value} {unit}")

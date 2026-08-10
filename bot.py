@@ -214,27 +214,25 @@ def format_clubs_message(clubs, title="📊 *Статистика по клуб�
 def clubs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Показываем оба типа
-        clubs_dist = get_clubs_stats_by_distance()
-        clubs_race = get_clubs_stats_by_races()
-        
-        msg1 = format_clubs_message(
-            clubs_dist, 
-            title="🏃 *По дистанции*", 
-            unit="км"
-        )
-        msg2 = format_clubs_message(
-            clubs_race, 
-            title="🏅 *По забегам*", 
-            unit="забегов"
-        )
-        
-        # Отправляем два сообщения
-        await query.message.reply_text(msg1, parse_mode='Markdown')
-        await query.message.reply_text(msg2, parse_mode='Markdown')
-        return
-        
-        await query.message.reply_text(message, parse_mode='Markdown')
-                
+    clubs_dist = get_clubs_stats_by_distance()
+    clubs_race = get_clubs_stats_by_races()
+    
+    msg1 = format_clubs_message(
+        clubs_dist, 
+        title="🏃 *По дистанции*", 
+        unit="км"
+    )
+    msg2 = format_clubs_message(
+        clubs_race, 
+        title="🏅 *По забегам*", 
+        unit="забегов"
+    )
+    
+    # Отправляем два сообщения
+    await query.message.reply_text(msg1, parse_mode='Markdown')
+    await query.message.reply_text(msg2, parse_mode='Markdown')
+    return
+
 # ==================== КОМАНДА /list ====================
 async def list_races(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = "SELECT city, race_name, race_date, distance, participant_name FROM races"
@@ -251,7 +249,7 @@ async def list_races(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 params.extend([int(month), int(year)])
                 header = f"📅 **Забеги за {month}.{year}:**\n\n"
             except ValueError:
-                await update.message.reply_text("Ошибка формата. Используйте ММ.ГГГГ (например: 05.2026)")
+                 update.message.reply_text("Ошибка формата. Используйте ММ.ГГГГ (например: 05.2026)")
                 return
         elif arg == "все":
             header = "🏃 **Все забеги за всё время:**\n\n"

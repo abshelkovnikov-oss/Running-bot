@@ -212,44 +212,26 @@ def format_clubs_message(clubs, title="📊 *Статистика по клуб�
     return "\n".join(lines)
 
 async def clubs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Главная команда /clubs с выбором типа статистики"""
-    keyboard = [
-        [InlineKeyboardButton("🏃 По дистанции (кратно 100 км)", callback_data="clubs_distance")],
-        [InlineKeyboardButton("🏅 По забегам (кратно 10)", callback_data="clubs_races")],
-        [InlineKeyboardButton("📊 Сравнить оба типа", callback_data="clubs_both")],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(
-        "📊 *Выберите тип статистики:*\n\n"
-        "🏃 *По дистанции* — группировка по 100 км\n"
-        "🏅 *По забегам* — группировка по 10 забегов",
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
-    )
 
-async def clubs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-            # Показываем оба типа
-            clubs_dist = get_clubs_stats_by_distance()
-            clubs_race = get_clubs_stats_by_races()
-            
-            msg1 = format_clubs_message(
-                clubs_dist, 
-                title="🏃 *По дистанции*", 
-                unit="км"
-            )
-            msg2 = format_clubs_message(
-                clubs_race, 
-                title="🏅 *По забегам*", 
-                unit="забегов"
-            )
-            
-            # Отправляем два сообщения
-            await query.message.reply_text(msg1, parse_mode='Markdown')
-            await query.message.reply_text(msg2, parse_mode='Markdown')
-            await query.message.reply_text("📊 *Сравнение завершено!*", parse_mode='Markdown')
-            return
+    # Показываем оба типа
+        clubs_dist = get_clubs_stats_by_distance()
+        clubs_race = get_clubs_stats_by_races()
+        
+        msg1 = format_clubs_message(
+            clubs_dist, 
+            title="🏃 *По дистанции*", 
+            unit="км"
+        )
+        msg2 = format_clubs_message(
+            clubs_race, 
+            title="🏅 *По забегам*", 
+            unit="забегов"
+        )
+        
+        # Отправляем два сообщения
+        await query.message.reply_text(msg1, parse_mode='Markdown')
+        await query.message.reply_text(msg2, parse_mode='Markdown')
+        return
         
         await query.message.reply_text(message, parse_mode='Markdown')
         

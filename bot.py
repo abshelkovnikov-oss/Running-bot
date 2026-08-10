@@ -6,6 +6,7 @@ import calendar
 from datetime import datetime
 from telegram import Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
+    Application,
     ApplicationBuilder, 
     CommandHandler, 
     MessageHandler, 
@@ -126,6 +127,71 @@ async def reload_races_from_excel(update: Update, context: ContextTypes.DEFAULT_
     except Exception as e:
         print(f"❌ Ошибка при загрузке: {e}")
 
+# ==================== КОМАНДА /clubs_command ====================
+def get_clubs_stats():
+    """Получает статистику по клубам из базы данных"""
+    conn = sqlite3.connect('your_database.db')  # Укажите путь к вашей БД
+    cursor = conn.cursor()
+    
+    # Ваш запрос
+    cursor.execute("""
+        SELECT participant_name, ROUND(SUM(distance)) as total_km 
+        FROM races 
+        GROUP BY participant_name 
+        ORDER BY total_km DESC
+    """)
+    
+    results = cursor.fetchall()
+    conn.close()
+    
+    # Группируем по клубам
+    clubs = {}
+    
+    for name, distance in results:
+        if distance < 100:  # Пропускаем тех, кто меньше 100 км
+            continue
+            
+        club = (distance // 100) * 100  # Ближайшее меньшее кратное 100
+        
+        if club not in clubs:
+            clubs[club] = []
+        clubs[club].append((name, distance))
+    
+    # Сортируем клубы по убыванию и участников внутри каждого клуба
+    sorted_clubs = {}
+    for club in sorted(clubs.keys(), reverse=True):
+        sorted_clubs[club] = sorted(clubs[club], key=lambda x: x[1], reverse=True)
+    
+    return sorted_clubs
+
+def format_clubs_message(clubs):
+    """Форматирует статистику в красивое сообщение"""
+    if not clubs:
+        return "🏃 Пока никто не пробежал 100+ км"
+    
+    lines = ["📊 *Статистика по клубам бегунов*\n"]
+    
+    for club, members in clubs.items():
+        lines.append(f"🏆 *Клуб {club} км*")
+        for name, distance in members:
+            lines.append(f"   • {name} — {distance} км")
+        lines.append("")  # Пустая строка между клубами
+    
+    # Добавляем итоговую статистику
+    total_runners = sum(len(members) for members in clubs.values())
+    lines.append(f"\n👥 Всего участников с 100+ км: {total_runners}")
+    
+    return "\n".join(lines)
+
+async def clubs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /clubs"""
+    try:
+        clubs = get_clubs_stats()
+        message = format_clubs_message(clubs)
+        await update.message.reply_text(message, parse_mode='Markdown')
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка при получении статистики: {str(e)}")
+        
 # ==================== КОМАНДА /list ====================
 async def list_races(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = "SELECT city, race_name, race_date, distance, participant_name FROM races"
@@ -802,6 +868,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("delete_race", delete_race))
     app.add_handler(CommandHandler("test", test_callback))
+    app.add_handler(CommandHandler("clubs", clubs_command))
 
     app.add_handler(add_race_conv_handler)
     app.add_handler(total_conv)

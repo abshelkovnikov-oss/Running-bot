@@ -130,7 +130,7 @@ async def reload_races_from_excel(update: Update, context: ContextTypes.DEFAULT_
 # ==================== КОМАНДА /clubs_command ====================
 def get_clubs_stats():
     """Получает статистику по клубам из базы данных"""
-    conn = sqlite3.connect('your_database.db')  # Укажите путь к вашей БД
+    conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
     
     # Ваш запрос

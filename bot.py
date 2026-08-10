@@ -262,7 +262,7 @@ async def list_races(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 params.extend([int(month), int(year)])
                 header = f"📅 **Забеги за {month}.{year}:**\n\n"
             except ValueError:
-                 update.message.reply_text("Ошибка формата. Используйте ММ.ГГГГ (например: 05.2026)")
+                await update.message.reply_text("❌ Ошибка формата. Используйте ММ.ГГГГ (например: 05.2026)")
                 return
         elif arg == "все":
             header = "🏃 **Все забеги за всё время:**\n\n"
@@ -270,6 +270,9 @@ async def list_races(update: Update, context: ContextTypes.DEFAULT_TYPE):
             query += " WHERE EXTRACT(YEAR FROM race_date) = %s"
             params.append(int(arg))
             header = f"📅 **Забеги за {arg} год:**\n\n"
+        else:
+            await update.message.reply_text("❌ Неверный формат. Используйте: ММ.ГГГГ, ГГГГ, 'все' или без аргументов")
+            return
     else:
         query += " WHERE race_date >= CURRENT_DATE"
         header = "🏃 **Предстоящие забеги:**\n\n"
@@ -285,14 +288,16 @@ async def list_races(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
 
         if not rows:
-            await update.message.reply_text("Записей не найдено.")
+            await update.message.reply_text("📭 Записей не найдено.")
             return
 
         messages = []
         current_msg = header
+        
         for r in rows:
-            date_str = r[2].strftime('%d.%m.%Y')
-            info = f"👤 *{r[4]}*\n📍 {r[0]} | {r[1]}\n🗓 {date_str} | 🏁 {r[3]} км\n\n"
+            city, race_name, race_date, distance, participant_name = r
+            date_str = race_date.strftime('%d.%m.%Y')
+            info = f"👤 *{participant_name}*\n📍 {city} | {race_name}\n🗓 {date_str} | 🏁 {distance} км\n\n"
             
             if len(current_msg) + len(info) > 4000:
                 messages.append(current_msg)
@@ -301,12 +306,16 @@ async def list_races(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 current_msg += info
         
         messages.append(current_msg)
+        
         for msg in messages:
             await update.message.reply_text(msg, parse_mode="Markdown")
 
+    except psycopg2.Error as e:
+        logging.error(f"Ошибка базы данных: {e}")
+        await update.message.reply_text("❌ Ошибка при чтении базы данных.")
     except Exception as e:
-        logging.error(e)
-        await update.message.reply_text("Ошибка при чтении базы.")
+        logging.error(f"Неизвестная ошибка: {e}")
+        await update.message.reply_text("❌ Произошла неизвестная ошибка.")
 
 # ==================== КОМАНДА /stats ====================
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):

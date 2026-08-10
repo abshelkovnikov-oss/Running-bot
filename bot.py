@@ -786,6 +786,7 @@ async def set_bot_commands(application):
         BotCommand("add_race", "➕ Добавить новый забег"),
         BotCommand("list", "📋 Список забегов"),
         BotCommand("stats", "🏆 Моя статистика"),
+        BotCommand("clubs", "🏆 ТОП участников"),
         BotCommand("total", "📊 Итоги за период"),
     ]    
     await application.bot.set_my_commands(commands)
@@ -800,6 +801,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/add_race - ➕ Добавить новый забег\n"
         "/list - 📋 Список всех забегов\n"
         "/stats - 🏆 Рейтинг участников\n"
+        "/clubs - 🏆 ТОП-участников\n"
         "/total - 📊 Итоги за выбранный период\n\n"
         "Выберите команду в меню или отправьте её в чат!"
     )

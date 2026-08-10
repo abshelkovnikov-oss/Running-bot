@@ -130,63 +130,73 @@ async def reload_races_from_excel(update: Update, context: ContextTypes.DEFAULT_
 # ==================== КОМАНДА /clubs_command ====================
 def get_clubs_stats_by_distance():
     """Статистика по клубам (по дистанции, кратно 100)"""
-    conn = psycopg2.connect(DATABASE_URL)
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT participant_name, ROUND(SUM(distance)) as total_km 
-        FROM races 
-        GROUP BY participant_name 
-        ORDER BY total_km DESC
-    """)
-    
-    results = cursor.fetchall()
-    conn.close()
-    
-    clubs = {}
-    for name, distance in results:
-        if distance < 100:
-            continue
-        club = (distance // 100) * 100
-        if club not in clubs:
-            clubs[club] = []
-        clubs[club].append((name, distance))
-    
-    sorted_clubs = {}
-    for club in sorted(clubs.keys(), reverse=True):
-        sorted_clubs[club] = sorted(clubs[club], key=lambda x: x[1], reverse=True)
-    
-    return sorted_clubs
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT participant_name, ROUND(SUM(distance)) as total_km 
+            FROM races 
+            GROUP BY participant_name 
+            ORDER BY total_km DESC
+        """)
+        
+        results = cursor.fetchall()
+        conn.close()
+        
+        clubs = {}
+        for name, distance in results:
+            if distance < 100:
+                continue
+            club = (distance // 100) * 100
+            if club not in clubs:
+                clubs[club] = []
+            clubs[club].append((name, distance))
+        
+        sorted_clubs = {}
+        for club in sorted(clubs.keys(), reverse=True):
+            sorted_clubs[club] = sorted(clubs[club], key=lambda x: x[1], reverse=True)
+        
+        return sorted_clubs
+        
+    except Exception as e:
+        print(f"Ошибка в get_clubs_stats_by_distance: {e}")
+        return {}
 
 def get_clubs_stats_by_races():
     """Статистика по клубам (по количеству забегов, кратно 10)"""
-    conn = psycopg2.connect(DATABASE_URL)
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT participant_name, COUNT(*) as races_count 
-        FROM races 
-        GROUP BY participant_name 
-        ORDER BY races_count DESC
-    """)
-    
-    results = cursor.fetchall()
-    conn.close()
-    
-    clubs = {}
-    for name, races_count in results:
-        if races_count < 10:  # Минимум 10 забегов
-            continue
-        club = (races_count // 10) * 10  # Кратно 10
-        if club not in clubs:
-            clubs[club] = []
-        clubs[club].append((name, races_count))
-    
-    sorted_clubs = {}
-    for club in sorted(clubs.keys(), reverse=True):
-        sorted_clubs[club] = sorted(clubs[club], key=lambda x: x[1], reverse=True)
-    
-    return sorted_clubs
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT participant_name, COUNT(*) as races_count 
+            FROM races 
+            GROUP BY participant_name 
+            ORDER BY races_count DESC
+        """)
+        
+        results = cursor.fetchall()
+        conn.close()
+        
+        clubs = {}
+        for name, races_count in results:
+            if races_count < 10:  # Минимум 10 забегов
+                continue
+            club = (races_count // 10) * 10  # Кратно 10
+            if club not in clubs:
+                clubs[club] = []
+            clubs[club].append((name, races_count))
+        
+        sorted_clubs = {}
+        for club in sorted(clubs.keys(), reverse=True):
+            sorted_clubs[club] = sorted(clubs[club], key=lambda x: x[1], reverse=True)
+        
+        return sorted_clubs
+        
+    except Exception as e:
+        print(f"Ошибка в get_clubs_stats_by_races: {e}")
+        return {}
 
 def format_clubs_message(clubs, title="📊 *Статистика по клубам бегунов*", unit="км"):
     """Форматирует статистику в красивое сообщение"""
@@ -211,27 +221,30 @@ def format_clubs_message(clubs, title="📊 *Статистика по клуб�
     
     return "\n".join(lines)
 
-def clubs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    # Показываем оба типа
-    clubs_dist = get_clubs_stats_by_distance()
-    clubs_race = get_clubs_stats_by_races()
-    
-    msg1 = format_clubs_message(
-        clubs_dist, 
-        title="🏃 *По дистанции*", 
-        unit="км"
-    )
-    msg2 = format_clubs_message(
-        clubs_race, 
-        title="🏅 *По забегам*", 
-        unit="забегов"
-    )
-    
-    # Отправляем два сообщения
-    await query.message.reply_text(msg1, parse_mode='Markdown')
-    await query.message.reply_text(msg2, parse_mode='Markdown')
-    return
+async def clubs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /clubs - показывает оба типа статистики"""
+    try:
+        # Показываем оба типа
+        clubs_dist = get_clubs_stats_by_distance()
+        clubs_race = get_clubs_stats_by_races()
+        
+        msg1 = format_clubs_message(
+            clubs_dist, 
+            title="🏃 *По дистанции*", 
+            unit="км"
+        )
+        msg2 = format_clubs_message(
+            clubs_race, 
+            title="🏅 *По забегам*", 
+            unit="забегов"
+        )
+        
+        # Отправляем два сообщения
+        await update.message.reply_text(msg1, parse_mode='Markdown')
+        await update.message.reply_text(msg2, parse_mode='Markdown')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка при получении статистики: {str(e)}")
 
 # ==================== КОМАНДА /list ====================
 async def list_races(update: Update, context: ContextTypes.DEFAULT_TYPE):

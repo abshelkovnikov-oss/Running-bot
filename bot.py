@@ -229,28 +229,7 @@ async def clubs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def clubs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка нажатий на кнопки"""
-    query = update.callback_query
-    await query.answer()
-    
-    try:
-        if query.data == "clubs_distance":
-            clubs = get_clubs_stats_by_distance()
-            message = format_clubs_message(
-                clubs, 
-                title="🏃 *Рейтинг по дистанции*", 
-                unit="км"
-            )
-            
-        elif query.data == "clubs_races":
-            clubs = get_clubs_stats_by_races()
-            message = format_clubs_message(
-                clubs, 
-                title="🏅 *Рейтинг по количеству забегов*", 
-                unit="забегов"
-            )
-            
-        elif query.data == "clubs_both":
+
             # Показываем оба типа
             clubs_dist = get_clubs_stats_by_distance()
             clubs_race = get_clubs_stats_by_races()

@@ -4,7 +4,6 @@ import logging
 import psycopg2
 import calendar
 from datetime import datetime
-from telegram import Update
 from telegram import BotCommand 
 from telegram import InlineKeyboardButton
 from telegram import InlineKeyboardMarkup

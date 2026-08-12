@@ -4,16 +4,7 @@ import logging
 import psycopg2
 import calendar
 from datetime import datetime
-from telegram.ext import (
-    Application,
-    ApplicationBuilder, 
-    CommandHandler, 
-    MessageHandler, 
-    filters, 
-    ConversationHandler, 
-    CallbackQueryHandler,
-    ContextTypes
-)
+
 from dotenv import load_dotenv
 load_dotenv()
 

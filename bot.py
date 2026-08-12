@@ -16,6 +16,7 @@ from telegram.ext import (
 )
 from dotenv import load_dotenv
 load_dotenv()
+import asyncio
 
 # Настройка логирования
 logging.basicConfig(
@@ -925,6 +926,13 @@ total_conv = ConversationHandler(
 
 # ==================== ЗАПУСК ====================
 if __name__ == '__main__':
+    # Создаем цикл событий для Python 3.14
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -940,6 +948,11 @@ if __name__ == '__main__':
     
     async def post_init(application):
         await set_bot_commands(application)
+    
+    app.post_init = post_init
+    
+    logging.info("🚀 Бот запущен!")
+    app.run_polling()
     
     app.post_init = post_init
     

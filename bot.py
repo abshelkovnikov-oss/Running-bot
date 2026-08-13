@@ -4,7 +4,7 @@ import logging
 import psycopg2
 import calendar
 from datetime import datetime
-from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import BotCommand
 from telegram.ext import (
     Application,
     ApplicationBuilder, 
@@ -913,11 +913,11 @@ total_conv = ConversationHandler(
     entry_points=[CommandHandler('total', total_start)],
     states={
         START_DATE: [
-            CallbackQueryHandler(calendar_callback, pattern="^start_"),
+            #CallbackQueryHandler(calendar_callback, pattern="^start_"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, get_start_date_old),
         ],
         END_DATE: [
-            CallbackQueryHandler(calendar_callback, pattern="^end_"),
+            #CallbackQueryHandler(calendar_callback, pattern="^end_"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, get_end_date_old),
         ],
     },

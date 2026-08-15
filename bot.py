@@ -30,6 +30,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 ADMIN_IDS = [int(id.strip()) for id in os.getenv("ADMIN_IDS", "0").split(",")]
 
 # Состояния для ConversationHandler
+PARTICIPANT_NAME = 5
 DATE, NAME, CITY, RACE_NAME, DISTANCE = range(5)
 START_DATE, END_DATE = range(2)
 
@@ -690,6 +691,140 @@ async def test_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
     await query.edit_message_text("✅ Кнопка работает!")
     return ConversationHandler.END
 
+# ==================== ФУНКЦИИ ДЛЯ БЫСТРОГО ДОБАВЛЕНИЯ УЧАСТНИКА ====================
+async def start_add_participant(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Быстрое добавление участника в последний забег"""
+    user_id = update.effective_user.id
+    
+    if not is_admin(user_id):
+        await update.message.reply_text(
+            "⛔ Доступ запрещен!\n"
+            "Только администраторы могут добавлять участников."
+        )
+        return ConversationHandler.END
+    
+    conn = None
+    cur = None
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        
+        # Получаем последний забег
+        cur.execute(
+            """SELECT id, race_date, city, race_name, distance 
+               FROM races 
+               ORDER BY id DESC 
+               LIMIT 1"""
+        )
+        last_race = cur.fetchone()
+        
+        if not last_race:
+            await update.message.reply_text(
+                "❌ В базе данных нет забегов.\n"
+                "Сначала добавьте забег через /add_race"
+            )
+            return ConversationHandler.END
+        
+        # Сохраняем данные последнего забега в контекст
+        context.user_data['last_race_id'] = last_race[0]
+        context.user_data['race_date'] = last_race[1]
+        context.user_data['city'] = last_race[2]
+        context.user_data['race_name'] = last_race[3]
+        context.user_data['distance'] = last_race[4]
+        
+        await update.message.reply_text(
+            f"🏃 Добавляем участника в забег:\n"
+            f"📅 Дата: {last_race[1].strftime('%d.%m.%Y')}\n"
+            f"📍 Город: {last_race[2]}\n"
+            f"🏃 Забег: {last_race[3]}\n"
+            f"📏 Дистанция: {float(last_race[4]):.2f} км\n\n"
+            "Введите ФИО участника:"
+        )
+        return PARTICIPANT_NAME
+        
+    except Exception as e:
+        logging.error(f"Ошибка при получении последнего забега: {e}", exc_info=True)
+        await update.message.reply_text(f"❌ Произошла ошибка: {str(e)[:100]}")
+        return ConversationHandler.END
+        
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+async def add_participant_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Добавление ФИО участника и сохранение в БД"""
+    participant_name = update.message.text.strip()
+    
+    if len(participant_name) < 2:
+        await update.message.reply_text(
+            "❌ Имя слишком короткое!\n"
+            "Пожалуйста, введите полное ФИО:"
+        )
+        return PARTICIPANT_NAME
+    
+    conn = None
+    cur = None
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        
+        # Получаем данные из контекста
+        race_date = context.user_data.get('race_date')
+        city = context.user_data.get('city')
+        race_name = context.user_data.get('race_name')
+        distance = context.user_data.get('distance')
+        
+        if not all([race_date, city, race_name, distance]):
+            await update.message.reply_text(
+                "❌ Ошибка: данные забега не найдены.\n"
+                "Пожалуйста, начните добавление заново командой /add_participant"
+            )
+            context.user_data.clear()
+            return ConversationHandler.END
+        
+        # Добавляем нового участника в тот же забег
+        cur.execute(
+            """INSERT INTO races (race_date, participant_name, city, race_name, distance) 
+               VALUES (%s, %s, %s, %s, %s)""",
+            (race_date, participant_name, city, race_name, distance)
+        )
+        conn.commit()
+        
+        response = (
+            "✅ Участник успешно добавлен!\n\n"
+            f"📅 Дата: {race_date.strftime('%d.%m.%Y')}\n"
+            f"👤 Участник: {participant_name}\n"
+            f"📍 Город: {city}\n"
+            f"🏃 Забег: {race_name}\n"
+            f"📏 Дистанция: {float(distance):.2f} км"
+        )
+        
+        await update.message.reply_text(response)
+        context.user_data.clear()
+        return ConversationHandler.END
+        
+    except Exception as e:
+        logging.error(f"Ошибка при добавлении участника: {e}", exc_info=True)
+        await update.message.reply_text(f"❌ Произошла ошибка: {str(e)[:100]}")
+        return ConversationHandler.END
+        
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+async def cancel_add_participant(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отмена добавления участника"""
+    await update.message.reply_text(
+        "❌ Добавление участника отменено.\n"
+        "Все введенные данные были удалены."
+    )
+    context.user_data.clear()
+    return ConversationHandler.END
+    
 # ==================== СОЗДАНИЕ ОБРАБОТЧИКОВ ====================
 add_race_conv_handler = ConversationHandler(
     entry_points=[CommandHandler('add_race', start_add_race)],
@@ -712,6 +847,15 @@ total_conv = ConversationHandler(
     },
     fallbacks=[CommandHandler('cancel', cancel)],
 )
+
+add_participant_handler = ConversationHandler(
+    entry_points=[CommandHandler('add_participant', start_add_participant)],
+    states={
+        PARTICIPANT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_participant_name)],
+    },
+    fallbacks=[CommandHandler('cancel', cancel_add_participant)],
+)
+
 # ==================== ЗАПУСК ====================
 if __name__ == '__main__':
     # Создаем цикл событий для Python 3.14
@@ -732,6 +876,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("clubs", clubs_command))
 
     app.add_handler(add_race_conv_handler)
+    app.add_handler(add_participant_handler)
     app.add_handler(total_conv)
     
     async def post_init(application):
